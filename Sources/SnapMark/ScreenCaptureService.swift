@@ -17,18 +17,25 @@ final class ScreenCaptureService {
     }
 
     func captureFullScreen() -> NSImage? {
-        let rect = NSScreen.screens
-            .map(\.frame)
-            .reduce(CGRect.null) { $0.union($1) }
-
-        return capture(rect: rect)
+        let rect = ScreenCaptureRegion.fullScreenCoreGraphicsRect(for: NSScreen.screens)
+        return capture(coreGraphicsRect: rect)
     }
 
     func capture(rect: CGRect) -> NSImage? {
+        guard let region = ScreenCaptureRegion(appKitRect: rect) else { return nil }
+        return capture(region: region)
+    }
+
+    func capture(region: ScreenCaptureRegion) -> NSImage? {
+        guard region.isCapturable else { return nil }
+        return capture(coreGraphicsRect: region.coreGraphicsRect, expectedPixelSize: region.pixelSize)
+    }
+
+    private func capture(coreGraphicsRect rect: CGRect, expectedPixelSize: CGSize? = nil) -> NSImage? {
         guard !rect.isNull, rect.width > 0, rect.height > 0 else { return nil }
 
         guard let cgImage = CGWindowListCreateImage(
-            rect.integral,
+            rect,
             .optionOnScreenOnly,
             kCGNullWindowID,
             [.bestResolution]
@@ -38,7 +45,7 @@ final class ScreenCaptureService {
 
         return NSImage(
             cgImage: cgImage,
-            size: CGSize(width: cgImage.width, height: cgImage.height)
+            size: expectedPixelSize ?? CGSize(width: cgImage.width, height: cgImage.height)
         )
     }
 

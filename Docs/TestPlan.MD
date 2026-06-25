@@ -30,6 +30,7 @@ Scripts/test.sh --skip-build --app dist/SnapMark.app
 | SMK-P0-SHOT-004 | 自动 | 状态 reset | 激活截图、编辑窗口、设置窗口状态下 `Esc` 可 reset。 |
 | SMK-P0-SHOT-005 | 手动 | 权限 | 首次截图无权限时提示打开系统设置；授权后截图不重复弹窗。 |
 | SMK-P0-SHOT-006 | 自动 | 截图遮罩 | 截图遮罩使用可成为 key/main 的 window，并在激活时主动接收 `Esc`。 |
+| SMK-P0-SHOT-007 | 自动 | 坐标映射 | 区域选择的 AppKit point 坐标按屏幕和 backing scale 转换为 CoreGraphics 截图坐标，避免截图内容偏移或尺寸错误。 |
 
 ## P0 放大镜
 
@@ -44,6 +45,7 @@ Scripts/test.sh --skip-build --app dist/SnapMark.app
 | --- | --- | --- | --- |
 | SMK-P0-ANN-001 | 自动 | 标注工具 | 箭头、矩形、文字、马赛克、放大镜工具和 renderer 都存在。 |
 | SMK-P0-ANN-002 | 手动 | 编辑窗口 | 截图后可添加每类标注，撤销、复制、保存可用。 |
+| SMK-P0-EDITOR-001 | 自动 | 编辑窗口 | 截图后窗口使用 Photoshop 风格棋盘底，截图内容居中显示，支持自动 fit、最高 800% 缩放和拖拽/滚动查看。 |
 
 ## P0 保存与导出
 

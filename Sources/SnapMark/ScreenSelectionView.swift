@@ -199,7 +199,8 @@ final class ScreenSelectionView: NSView {
     }
 
     private func drawSizeLabel(for rect: CGRect) {
-        let text = "\(Int(rect.width)) x \(Int(rect.height))"
+        let scale = max(1, window?.screen?.backingScaleFactor ?? 1)
+        let text = "\(Int((rect.width * scale).rounded())) x \(Int((rect.height * scale).rounded())) px"
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium),
             .foregroundColor: NSColor.white

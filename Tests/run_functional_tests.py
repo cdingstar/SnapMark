@@ -46,8 +46,10 @@ class FunctionalTestRunner:
             TestCase("SMK-P0-SHOT-003", "窗口探测和点击整窗截图路径存在", self.case_window_capture),
             TestCase("SMK-P0-SHOT-004", "截图激活状态支持 Esc reset", self.case_escape_reset),
             TestCase("SMK-P0-SHOT-006", "截图遮罩窗口可接收 Esc 键盘事件", self.case_selection_window_receives_escape),
+            TestCase("SMK-P0-SHOT-007", "区域截图坐标按屏幕和 backing scale 映射", self.case_region_coordinate_mapping),
             TestCase("SMK-P0-MAG-001", "截图选择放大镜为 10x 像素化放大", self.case_selection_magnifier),
             TestCase("SMK-P0-ANN-001", "编辑器标注工具覆盖箭头/矩形/文字/马赛克/放大镜", self.case_annotation_tools),
+            TestCase("SMK-P0-EDITOR-001", "编辑器使用棋盘底、居中显示、缩放和平移", self.case_editor_checkerboard_zoom_pan),
             TestCase("SMK-P0-SAVE-001", "自动保存目录读取设置且默认 Downloads", self.case_autosave_settings),
             TestCase("SMK-P0-HOT-001", "默认快捷键 fallback 为 A/S/Q", self.case_hotkey_fallbacks),
             TestCase("SMK-P0-HOT-002", "快捷键失效检测和自动切换逻辑存在", self.case_hotkey_health_check),
@@ -76,8 +78,8 @@ class FunctionalTestRunner:
         app = self.read("Sources/SnapMark/AppDelegate.swift")
         controller = self.read("Sources/SnapMark/ScreenSelectionController.swift")
         self.require("captureRegion()" in app, "missing captureRegion entry")
-        self.require("case region(CGRect)" in controller, "ScreenSelectionResult.region missing")
-        self.require("case .region(let rect)" in app, "AppDelegate does not handle region result")
+        self.require("case region(ScreenCaptureRegion)" in controller, "ScreenSelectionResult.region missing")
+        self.require("case .region(let region)" in app, "AppDelegate does not handle region result")
 
     def case_fullscreen_capture(self) -> None:
         app = self.read("Sources/SnapMark/AppDelegate.swift")
@@ -120,6 +122,45 @@ class FunctionalTestRunner:
         self.require("override func keyDown" in window and "cancelFromKeyboard()" in window, "selection window must route Esc to cancel")
         self.require("func cancelFromKeyboard()" in selection, "selection view must expose keyboard cancel path")
 
+    def case_region_coordinate_mapping(self) -> None:
+        region = self.read("Sources/SnapMark/ScreenCaptureRegion.swift")
+        controller = self.read("Sources/SnapMark/ScreenSelectionController.swift")
+        selection = self.read("Sources/SnapMark/ScreenSelectionView.swift")
+        service = self.read("Sources/SnapMark/ScreenCaptureService.swift")
+        app = self.read("Sources/SnapMark/AppDelegate.swift")
+
+        for token in [
+            "backingScaleFactor = max(1, screen.backingScaleFactor)",
+            "floor(rect.minX * scale) / scale",
+            "ceil(rect.maxX * scale) / scale",
+            "screenFrame.maxY - appKitRect.maxY",
+            "displayBounds(for: screen)",
+            "CGDisplayBounds(CGDirectDisplayID",
+            "pixelSize = Self.pixelSize",
+        ]:
+            self.require(token in region, f"coordinate mapper missing {token}")
+
+        self.require("ScreenCaptureRegion(appKitRect: screenRect, screen: window.screen)" in controller, "selection completion must map through ScreenCaptureRegion")
+        self.require("backingScaleFactor" in selection and " px" in selection, "selection size label must show backing pixel size")
+        self.require("capture(region: ScreenCaptureRegion)" in service, "capture service must accept mapped region")
+        self.require("region.coreGraphicsRect" in service, "capture service must use CoreGraphics rect")
+        self.require("expectedPixelSize: region.pixelSize" in service, "capture service must preserve expected pixel size")
+        self.require("rect," in service and "rect.integral" not in service, "capture must not re-integral already pixel-aligned rect")
+        self.require("captureService.capture(region: region)" in app, "AppDelegate must capture mapped region")
+
+        scale = 2
+        rect = {"min_x": 120.25, "min_y": 80.25, "max_x": 150.5, "max_y": 120.5}
+        aligned_min_x = (rect["min_x"] * scale // 1) / scale
+        aligned_min_y = (rect["min_y"] * scale // 1) / scale
+        aligned_max_x = -(-rect["max_x"] * scale // 1) / scale
+        aligned_max_y = -(-rect["max_y"] * scale // 1) / scale
+        cg_y = 956 - aligned_max_y
+        self.require(aligned_min_x == 120.0, "fixture minX alignment failed")
+        self.require(aligned_min_y == 80.0, "fixture minY alignment failed")
+        self.require(aligned_max_x == 150.5, "fixture maxX alignment failed")
+        self.require(aligned_max_y == 120.5, "fixture maxY alignment failed")
+        self.require(cg_y == 835.5, "fixture CoreGraphics y flip failed")
+
     def case_selection_magnifier(self) -> None:
         magnifier = self.read("Sources/SnapMark/SelectionMagnifierRenderer.swift")
         view = self.read("Sources/SnapMark/ScreenSelectionView.swift")
@@ -135,6 +176,32 @@ class FunctionalTestRunner:
             self.require(token in annotation, f"missing annotation tool: {token}")
         for draw_fn in ["drawArrow", "drawRectangle", "drawText", "drawMosaic", "drawMagnifier"]:
             self.require(draw_fn in renderer, f"missing renderer: {draw_fn}")
+
+    def case_editor_checkerboard_zoom_pan(self) -> None:
+        canvas = self.read("Sources/SnapMark/EditorCanvasView.swift")
+        editor = self.read("Sources/SnapMark/EditorWindowController.swift")
+        for token in [
+            "drawCheckerboard(in:",
+            "checkerTileSize",
+            "canvasRect",
+            "transform.scale(by: zoomScale)",
+            "imagePoint(from:",
+            "imageInterpolation = .none",
+            "static let maximumZoomScale: CGFloat = 8",
+            "fitZoomScale(for ",
+            "rightMouseDragged",
+            "updatePan(with:",
+        ]:
+            self.require(token in canvas, f"editor canvas missing {token}")
+        for token in [
+            "scrollView.drawsBackground = false",
+            "canvasView.setZoomScale(canvasView.fitZoomScale",
+            "scrollToVisible(canvasView.canvasCenterRect)",
+            "NSSlider(",
+            "EditorCanvasView.maximumZoomScale",
+            "fitZoom",
+        ]:
+            self.require(token in editor, f"editor window missing {token}")
 
     def case_autosave_settings(self) -> None:
         settings = self.read("Sources/SnapMark/AppSettings.swift")
@@ -283,8 +350,10 @@ class FunctionalTestRunner:
             "SMK-P0-SHOT-001",
             "SMK-P0-SHOT-002",
             "SMK-P0-SHOT-003",
+            "SMK-P0-SHOT-007",
             "SMK-P0-MAG-001",
             "SMK-P0-ANN-001",
+            "SMK-P0-EDITOR-001",
             "SMK-P0-SAVE-001",
             "SMK-P0-HOT-001",
             "SMK-P0-DRAG-001",

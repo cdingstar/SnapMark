@@ -243,9 +243,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
                 let image: NSImage?
                 switch result {
-                case .region(let rect):
-                    guard rect.width >= 4, rect.height >= 4 else { return }
-                    image = self.captureService.capture(rect: rect)
+                case .region(let region):
+                    guard region.isCapturable else { return }
+                    image = self.captureService.capture(region: region)
                 case .window(let target):
                     image = self.captureService.capture(windowID: target.windowID, fallbackRect: target.appKitBounds)
                 }

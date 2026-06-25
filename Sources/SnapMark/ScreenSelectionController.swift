@@ -2,7 +2,7 @@ import AppKit
 import CoreGraphics
 
 enum ScreenSelectionResult {
-    case region(CGRect)
+    case region(ScreenCaptureRegion)
     case window(WindowTarget)
 }
 
@@ -74,7 +74,11 @@ final class ScreenSelectionController {
                 return
             }
             let screenRect = window.convertToScreen(localRect)
-            self?.finish(.region(screenRect.standardized))
+            guard let region = ScreenCaptureRegion(appKitRect: screenRect, screen: window.screen) else {
+                self?.finish(nil)
+                return
+            }
+            self?.finish(.region(region))
         }
         view.onWindowComplete = { [weak self] target in
             self?.finish(.window(target))

@@ -3,24 +3,30 @@ import AppKit
 final class EditorWindowController: NSWindowController, NSWindowDelegate, NSToolbarDelegate {
     var onClose: (() -> Void)?
 
+    private let scrollView = NSScrollView()
     private let canvasView: EditorCanvasView
     private let saveURL: URL
     private var autosaveWorkItem: DispatchWorkItem?
     private var shouldSaveOnClose = true
     private var toolControl: NSSegmentedControl?
+    private var zoomSlider: NSSlider?
+    private var zoomLabel: NSTextField?
 
     init(image: NSImage) {
         canvasView = EditorCanvasView(image: image)
         saveURL = AutoSaveStore.newCaptureURL()
 
-        let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
         scrollView.documentView = canvasView
 
         let contentSize = EditorWindowController.preferredWindowSize(for: image.snapMarkPixelSize)
+        canvasView.updateViewportSize(contentSize)
+        canvasView.setZoomScale(canvasView.fitZoomScale(for: contentSize))
+
         let window = NSWindow(
             contentRect: CGRect(origin: .zero, size: contentSize),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -35,6 +41,14 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
 
         window.delegate = self
         setupToolbar()
+        updateZoomUI()
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(scrollViewBoundsDidChange),
+            name: NSView.boundsDidChangeNotification,
+            object: scrollView.contentView
+        )
         canvasView.onAnnotationsChanged = { [weak self] in
             self?.scheduleAutosave()
         }
@@ -48,8 +62,14 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         nil
     }
 
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
     override func showWindow(_ sender: Any?) {
         super.showWindow(sender)
+        updateCanvasViewport()
+        canvasView.scrollToVisible(canvasView.canvasCenterRect)
         window?.center()
         window?.makeKeyAndOrderFront(sender)
     }
@@ -103,6 +123,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         [
             .tools,
             .flexibleSpace,
+            .fitZoom,
+            .zoom,
+            .flexibleSpace,
             .undo,
             .copy,
             .save,
@@ -131,6 +154,48 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             control.setWidth(70, forSegment: AnnotationTool.magnifier.rawValue)
             item.view = control
             toolControl = control
+            return item
+
+        case .fitZoom:
+            return toolbarButton(
+                identifier: itemIdentifier,
+                label: "适应",
+                symbolName: "arrow.up.left.and.arrow.down.right",
+                action: #selector(fitZoom)
+            )
+
+        case .zoom:
+            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.label = "缩放"
+            item.paletteLabel = "缩放"
+
+            let label = NSTextField(labelWithString: "")
+            label.alignment = .right
+            label.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+            label.textColor = .secondaryLabelColor
+            label.widthAnchor.constraint(equalToConstant: 48).isActive = true
+
+            let slider = NSSlider(
+                value: Double(canvasView.zoomScale),
+                minValue: Double(EditorCanvasView.minimumZoomScale),
+                maxValue: Double(EditorCanvasView.maximumZoomScale),
+                target: self,
+                action: #selector(changeZoom)
+            )
+            slider.controlSize = .small
+            slider.widthAnchor.constraint(equalToConstant: 150).isActive = true
+
+            let stack = NSStackView(views: [label, slider])
+            stack.orientation = .horizontal
+            stack.alignment = .centerY
+            stack.spacing = 8
+            stack.translatesAutoresizingMaskIntoConstraints = false
+            stack.widthAnchor.constraint(greaterThanOrEqualToConstant: 214).isActive = true
+
+            item.view = stack
+            zoomLabel = label
+            zoomSlider = slider
+            updateZoomUI()
             return item
 
         case .undo:
@@ -176,6 +241,24 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     @objc private func changeTool(_ sender: NSSegmentedControl) {
         guard let tool = AnnotationTool(rawValue: sender.selectedSegment) else { return }
         canvasView.currentTool = tool
+    }
+
+    @objc private func fitZoom() {
+        updateCanvasViewport()
+        canvasView.setZoomScale(canvasView.fitZoomScale(for: scrollView.contentView.bounds.size))
+        updateZoomUI()
+        canvasView.scrollToVisible(canvasView.canvasCenterRect)
+    }
+
+    @objc private func changeZoom(_ sender: NSSlider) {
+        updateCanvasViewport()
+        canvasView.setZoomScale(CGFloat(sender.doubleValue))
+        updateZoomUI()
+        canvasView.scrollToVisible(canvasView.canvasCenterRect)
+    }
+
+    @objc private func scrollViewBoundsDidChange(_ notification: Notification) {
+        updateCanvasViewport()
     }
 
     @objc private func undo() {
@@ -229,6 +312,15 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         }
     }
 
+    private func updateCanvasViewport() {
+        canvasView.updateViewportSize(scrollView.contentView.bounds.size)
+    }
+
+    private func updateZoomUI() {
+        zoomSlider?.doubleValue = Double(canvasView.zoomScale)
+        zoomLabel?.stringValue = "\(Int((canvasView.zoomScale * 100).rounded()))%"
+    }
+
     private func toolbarButton(identifier: NSToolbarItem.Identifier, label: String, symbolName: String, action: Selector) -> NSToolbarItem {
         let item = NSToolbarItem(itemIdentifier: identifier)
         item.label = label
@@ -243,6 +335,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
 
 private extension NSToolbarItem.Identifier {
     static let tools = NSToolbarItem.Identifier("SnapMark.Tools")
+    static let fitZoom = NSToolbarItem.Identifier("SnapMark.FitZoom")
+    static let zoom = NSToolbarItem.Identifier("SnapMark.Zoom")
     static let undo = NSToolbarItem.Identifier("SnapMark.Undo")
     static let copy = NSToolbarItem.Identifier("SnapMark.Copy")
     static let save = NSToolbarItem.Identifier("SnapMark.Save")
