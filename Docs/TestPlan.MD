@@ -31,6 +31,8 @@ Scripts/test.sh --skip-build --app dist/SnapMark.app
 | SMK-P0-SHOT-005 | 手动 | 权限 | 首次截图无权限时提示打开系统设置；授权后截图不重复弹窗。 |
 | SMK-P0-SHOT-006 | 自动 | 截图遮罩 | 截图遮罩使用可成为 key/main 的 window，并在激活时主动接收 `Esc`。 |
 | SMK-P0-SHOT-007 | 自动 | 坐标映射 | 区域选择的 AppKit point 坐标按屏幕和 backing scale 转换为 CoreGraphics 截图坐标，避免截图内容偏移或尺寸错误。 |
+| SMK-P0-SHOT-008 | 自动 | 截图内容 | 实际截图输出尺寸必须与选择区域换算后的像素尺寸一致，避免选区和结果尺寸不一致。 |
+| SMK-P0-SHOT-009 | 自动 | 选区提示 | 选择框尺寸提示显示实际像素 `px`，不是 AppKit point。 |
 
 ## P0 放大镜
 
@@ -46,6 +48,9 @@ Scripts/test.sh --skip-build --app dist/SnapMark.app
 | SMK-P0-ANN-001 | 自动 | 标注工具 | 箭头、矩形、文字、马赛克、放大镜工具和 renderer 都存在。 |
 | SMK-P0-ANN-002 | 手动 | 编辑窗口 | 截图后可添加每类标注，撤销、复制、保存可用。 |
 | SMK-P0-EDITOR-001 | 自动 | 编辑窗口 | 截图后窗口使用 Photoshop 风格棋盘底，截图内容居中显示，支持自动 fit、最高 800% 缩放和拖拽/滚动查看。 |
+| SMK-P0-EDITOR-002 | 自动 | 导出一致性 | 编辑器缩放只影响显示，不影响保存/复制/拖拽导出的原始像素尺寸。 |
+| SMK-P0-EDITOR-003 | 自动 | 标注坐标 | 编辑器在任意缩放比例下，将鼠标位置反算到图片像素坐标，标注保存位置不漂移。 |
+| SMK-P0-EDITOR-004 | 自动 | 缩放范围 | 编辑器 fit 逻辑和 slider 覆盖 `1:8` 到 `8:1`，并在高缩放下保持可滚动查看。 |
 
 ## P0 保存与导出
 

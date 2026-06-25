@@ -47,9 +47,14 @@ class FunctionalTestRunner:
             TestCase("SMK-P0-SHOT-004", "截图激活状态支持 Esc reset", self.case_escape_reset),
             TestCase("SMK-P0-SHOT-006", "截图遮罩窗口可接收 Esc 键盘事件", self.case_selection_window_receives_escape),
             TestCase("SMK-P0-SHOT-007", "区域截图坐标按屏幕和 backing scale 映射", self.case_region_coordinate_mapping),
+            TestCase("SMK-P0-SHOT-008", "实际截图内容尺寸与选择像素尺寸一致", self.case_region_capture_pixel_size),
+            TestCase("SMK-P0-SHOT-009", "选择框尺寸提示显示实际像素", self.case_selection_size_label_pixels),
             TestCase("SMK-P0-MAG-001", "截图选择放大镜为 10x 像素化放大", self.case_selection_magnifier),
             TestCase("SMK-P0-ANN-001", "编辑器标注工具覆盖箭头/矩形/文字/马赛克/放大镜", self.case_annotation_tools),
             TestCase("SMK-P0-EDITOR-001", "编辑器使用棋盘底、居中显示、缩放和平移", self.case_editor_checkerboard_zoom_pan),
+            TestCase("SMK-P0-EDITOR-002", "编辑器缩放不影响保存/复制输出像素", self.case_editor_export_independent_from_zoom),
+            TestCase("SMK-P0-EDITOR-003", "编辑器标注坐标按缩放反算到图片像素", self.case_editor_annotation_coordinate_mapping),
+            TestCase("SMK-P0-EDITOR-004", "编辑器 fit 和缩放范围覆盖 1:8 到 8:1", self.case_editor_zoom_range),
             TestCase("SMK-P0-SAVE-001", "自动保存目录读取设置且默认 Downloads", self.case_autosave_settings),
             TestCase("SMK-P0-HOT-001", "默认快捷键 fallback 为 A/S/Q", self.case_hotkey_fallbacks),
             TestCase("SMK-P0-HOT-002", "快捷键失效检测和自动切换逻辑存在", self.case_hotkey_health_check),
@@ -125,7 +130,6 @@ class FunctionalTestRunner:
     def case_region_coordinate_mapping(self) -> None:
         region = self.read("Sources/SnapMark/ScreenCaptureRegion.swift")
         controller = self.read("Sources/SnapMark/ScreenSelectionController.swift")
-        selection = self.read("Sources/SnapMark/ScreenSelectionView.swift")
         service = self.read("Sources/SnapMark/ScreenCaptureService.swift")
         app = self.read("Sources/SnapMark/AppDelegate.swift")
 
@@ -141,7 +145,6 @@ class FunctionalTestRunner:
             self.require(token in region, f"coordinate mapper missing {token}")
 
         self.require("ScreenCaptureRegion(appKitRect: screenRect, screen: window.screen)" in controller, "selection completion must map through ScreenCaptureRegion")
-        self.require("backingScaleFactor" in selection and " px" in selection, "selection size label must show backing pixel size")
         self.require("capture(region: ScreenCaptureRegion)" in service, "capture service must accept mapped region")
         self.require("region.coreGraphicsRect" in service, "capture service must use CoreGraphics rect")
         self.require("expectedPixelSize: region.pixelSize" in service, "capture service must preserve expected pixel size")
@@ -160,6 +163,31 @@ class FunctionalTestRunner:
         self.require(aligned_max_x == 150.5, "fixture maxX alignment failed")
         self.require(aligned_max_y == 120.5, "fixture maxY alignment failed")
         self.require(cg_y == 835.5, "fixture CoreGraphics y flip failed")
+
+    def case_region_capture_pixel_size(self) -> None:
+        region = self.read("Sources/SnapMark/ScreenCaptureRegion.swift")
+        service = self.read("Sources/SnapMark/ScreenCaptureService.swift")
+        app = self.read("Sources/SnapMark/AppDelegate.swift")
+
+        self.require("let pixelSize: CGSize" in region, "region must store selected pixel size")
+        self.require("(rect.width * scale).rounded()" in region, "pixel width must derive from aligned point width and scale")
+        self.require("(rect.height * scale).rounded()" in region, "pixel height must derive from aligned point height and scale")
+        self.require("func capture(region: ScreenCaptureRegion)" in service, "capture service must expose region capture")
+        self.require("expectedPixelSize: region.pixelSize" in service, "region capture must pass expected pixel size")
+        self.require("size: expectedPixelSize ?? CGSize(width: cgImage.width, height: cgImage.height)" in service, "NSImage size must preserve expected capture pixels")
+        self.require("region.isCapturable" in app and "captureService.capture(region: region)" in app, "AppDelegate must guard and capture by region")
+
+        selected_points = {"width": 30.5, "height": 40.5}
+        scale = 2
+        expected_pixels = (round(selected_points["width"] * scale), round(selected_points["height"] * scale))
+        self.require(expected_pixels == (61, 81), "fixture selected pixels must match expected output size")
+
+    def case_selection_size_label_pixels(self) -> None:
+        selection = self.read("Sources/SnapMark/ScreenSelectionView.swift")
+        self.require("window?.screen?.backingScaleFactor" in selection, "selection label must use screen backing scale")
+        self.require("rect.width * scale" in selection, "selection width label must convert points to pixels")
+        self.require("rect.height * scale" in selection, "selection height label must convert points to pixels")
+        self.require(" px" in selection, "selection label must show px unit")
 
     def case_selection_magnifier(self) -> None:
         magnifier = self.read("Sources/SnapMark/SelectionMagnifierRenderer.swift")
@@ -185,10 +213,7 @@ class FunctionalTestRunner:
             "checkerTileSize",
             "canvasRect",
             "transform.scale(by: zoomScale)",
-            "imagePoint(from:",
             "imageInterpolation = .none",
-            "static let maximumZoomScale: CGFloat = 8",
-            "fitZoomScale(for ",
             "rightMouseDragged",
             "updatePan(with:",
         ]:
@@ -202,6 +227,57 @@ class FunctionalTestRunner:
             "fitZoom",
         ]:
             self.require(token in editor, f"editor window missing {token}")
+
+    def case_editor_export_independent_from_zoom(self) -> None:
+        canvas = self.read("Sources/SnapMark/EditorCanvasView.swift")
+        renderer = self.read("Sources/SnapMark/ImageRenderer.swift")
+        autosave = self.read("Sources/SnapMark/AutoSaveStore.swift")
+
+        self.require("func renderedImage() -> NSImage" in canvas, "canvas renderedImage missing")
+        rendered_body = re.search(r"func renderedImage\(\) -> NSImage \{\n(?P<body>.*?)\n    \}", canvas, re.DOTALL)
+        self.require(rendered_body is not None, "renderedImage body missing")
+        assert rendered_body is not None
+        self.require("zoomScale" not in rendered_body.group("body"), "rendered export must not depend on editor zoom")
+        self.require("ImageRenderer.render(baseImage: baseImage, annotations: annotations)" in rendered_body.group("body"), "rendered export must use base image renderer")
+        self.require("let size = baseImage.snapMarkPixelSize" in renderer, "renderer must use base image pixel size")
+        self.require("pixelsWide: max(1, Int(size.width.rounded()))" in renderer, "renderer output width must be pixel size")
+        self.require("pixelsHigh: max(1, Int(size.height.rounded()))" in renderer, "renderer output height must be pixel size")
+        self.require("let bitmap = NSBitmapImageRep(cgImage: cgImage)" in autosave, "PNG export must use rendered CGImage pixels")
+
+    def case_editor_annotation_coordinate_mapping(self) -> None:
+        canvas = self.read("Sources/SnapMark/EditorCanvasView.swift")
+        for token in [
+            "imagePoint(from:",
+            "(viewPoint.x - rect.minX) / zoomScale",
+            "(viewPoint.y - rect.minY) / zoomScale",
+            "clamped(",
+            "min(imageSize.width, point.x)",
+            "min(imageSize.height, point.y)",
+        ]:
+            self.require(token in canvas, f"editor annotation coordinate mapping missing {token}")
+        self.require("guard let point = imagePoint(from: convert(event.locationInWindow, from: nil))" in canvas, "mouseDown must map to image pixels")
+        self.require("dragCurrent = point" in canvas, "mouseDragged must update image pixel point")
+        self.require("let end = imagePoint(from: convert(event.locationInWindow, from: nil)) ?? start" in canvas, "mouseUp must map endpoint to image pixels")
+
+        view_point = {"x": 180, "y": 132}
+        canvas_origin = {"x": 100, "y": 80}
+        zoom = 4
+        image_point = ((view_point["x"] - canvas_origin["x"]) / zoom, (view_point["y"] - canvas_origin["y"]) / zoom)
+        self.require(image_point == (20, 13), "fixture image coordinate reverse mapping failed")
+
+    def case_editor_zoom_range(self) -> None:
+        canvas = self.read("Sources/SnapMark/EditorCanvasView.swift")
+        editor = self.read("Sources/SnapMark/EditorWindowController.swift")
+        self.require("static let minimumZoomScale: CGFloat = 0.125" in canvas, "minimum zoom must support 1:8")
+        self.require("static let maximumZoomScale: CGFloat = 8" in canvas, "maximum zoom must support 8:1")
+        self.require("min(Self.maximumZoomScale, max(Self.minimumZoomScale, scale))" in canvas, "setZoomScale must clamp to supported range")
+        self.require("let availableWidth = max(1, viewportSize.width - contentPadding * 2)" in canvas, "fit zoom must account for horizontal padding")
+        self.require("let availableHeight = max(1, viewportSize.height - contentPadding * 2)" in canvas, "fit zoom must account for vertical padding")
+        self.require("min(1, availableWidth / imageSize.width, availableHeight / imageSize.height)" in canvas, "fit zoom must prefer 1:1 unless image is too large")
+        self.require("max(viewportSize.width, scaledSize.width + contentPadding * 2)" in canvas, "document width must allow scrolling at high zoom")
+        self.require("max(viewportSize.height, scaledSize.height + contentPadding * 2)" in canvas, "document height must allow scrolling at high zoom")
+        self.require("minValue: Double(EditorCanvasView.minimumZoomScale)" in editor, "zoom slider must expose minimum zoom")
+        self.require("maxValue: Double(EditorCanvasView.maximumZoomScale)" in editor, "zoom slider must expose maximum zoom")
 
     def case_autosave_settings(self) -> None:
         settings = self.read("Sources/SnapMark/AppSettings.swift")
@@ -351,9 +427,14 @@ class FunctionalTestRunner:
             "SMK-P0-SHOT-002",
             "SMK-P0-SHOT-003",
             "SMK-P0-SHOT-007",
+            "SMK-P0-SHOT-008",
+            "SMK-P0-SHOT-009",
             "SMK-P0-MAG-001",
             "SMK-P0-ANN-001",
             "SMK-P0-EDITOR-001",
+            "SMK-P0-EDITOR-002",
+            "SMK-P0-EDITOR-003",
+            "SMK-P0-EDITOR-004",
             "SMK-P0-SAVE-001",
             "SMK-P0-HOT-001",
             "SMK-P0-DRAG-001",
