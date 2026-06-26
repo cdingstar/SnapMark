@@ -4,6 +4,8 @@ import CoreGraphics
 struct ScreenCaptureRegion: Equatable {
     let appKitRect: CGRect
     let coreGraphicsRect: CGRect
+    let captureRequestRect: CGRect
+    let captureCropRect: CGRect
     let backingScaleFactor: CGFloat
     let pixelSize: CGSize
 
@@ -21,6 +23,13 @@ struct ScreenCaptureRegion: Equatable {
         guard snappedCoreGraphicsRect.width > 0, snappedCoreGraphicsRect.height > 0 else { return nil }
 
         coreGraphicsRect = snappedCoreGraphicsRect
+        captureRequestRect = Self.integralPointRect(containing: snappedCoreGraphicsRect)
+        captureCropRect = Self.cropRect(
+            for: snappedCoreGraphicsRect,
+            inside: captureRequestRect,
+            displayBounds: displayBounds,
+            scale: backingScaleFactor
+        )
         appKitRect = Self.appKitRect(from: snappedCoreGraphicsRect, displayBounds: displayBounds, on: screen)
         pixelSize = Self.pixelSize(for: snappedCoreGraphicsRect, displayBounds: displayBounds, scale: backingScaleFactor)
     }
@@ -87,12 +96,37 @@ struct ScreenCaptureRegion: Equatable {
         origin + ((value - origin) * scale).rounded() / scale
     }
 
+    private static func integralPointRect(containing rect: CGRect) -> CGRect {
+        let minX = floor(rect.minX)
+        let minY = floor(rect.minY)
+        let maxX = ceil(rect.maxX)
+        let maxY = ceil(rect.maxY)
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    }
+
+    private static func cropRect(for rect: CGRect, inside requestRect: CGRect, displayBounds: CGRect, scale: CGFloat) -> CGRect {
+        let target = pixelRect(for: rect, displayBounds: displayBounds, scale: scale)
+        let request = pixelRect(for: requestRect, displayBounds: displayBounds, scale: scale)
+        return CGRect(
+            x: target.minX - request.minX,
+            y: target.minY - request.minY,
+            width: target.width,
+            height: target.height
+        )
+    }
+
     private static func pixelSize(for rect: CGRect, displayBounds: CGRect, scale: CGFloat) -> CGSize {
+        pixelRect(for: rect, displayBounds: displayBounds, scale: scale).size
+    }
+
+    private static func pixelRect(for rect: CGRect, displayBounds: CGRect, scale: CGFloat) -> CGRect {
         let minX = ((rect.minX - displayBounds.minX) * scale).rounded()
         let minY = ((rect.minY - displayBounds.minY) * scale).rounded()
         let maxX = ((rect.maxX - displayBounds.minX) * scale).rounded()
         let maxY = ((rect.maxY - displayBounds.minY) * scale).rounded()
-        return CGSize(
+        return CGRect(
+            x: minX,
+            y: minY,
             width: max(1, maxX - minX),
             height: max(1, maxY - minY)
         )

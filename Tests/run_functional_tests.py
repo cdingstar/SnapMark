@@ -52,6 +52,7 @@ class FunctionalTestRunner:
             TestCase("SMK-P0-SHOT-009", "选择框尺寸提示显示实际像素", self.case_selection_size_label_pixels),
             TestCase("SMK-P0-SHOT-010", "选区坐标面板显示 local/screen/capture/pixel 转换", self.case_selection_coordinate_overlay),
             TestCase("SMK-P0-SHOT-011", "四个拖拽方向的截图像素区域一致", self.case_region_drag_direction_pixel_edges),
+            TestCase("SMK-P0-SHOT-012", "半像素垂直边界通过外包截图和像素裁剪保持一致", self.case_region_half_pixel_capture_crop),
             TestCase("SMK-P0-MAG-001", "截图选择放大镜为 5x 像素化放大并扩大视野", self.case_selection_magnifier),
             TestCase("SMK-P0-ANN-001", "编辑器标注工具覆盖箭头/矩形/文字/马赛克/放大镜", self.case_annotation_tools),
             TestCase("SMK-P0-EDITOR-001", "编辑器使用棋盘底、居中显示、缩放和平移", self.case_editor_checkerboard_zoom_pan),
@@ -147,6 +148,8 @@ class FunctionalTestRunner:
             "coreGraphicsDisplayBounds(for: screen)",
             "CGDisplayBounds(CGDirectDisplayID",
             "pixelSize = Self.pixelSize",
+            "captureRequestRect = Self.integralPointRect",
+            "captureCropRect = Self.cropRect",
         ]:
             self.require(token in region, f"coordinate mapper missing {token}")
 
@@ -154,9 +157,9 @@ class FunctionalTestRunner:
         self.require("static func coreGraphicsPoint(from appKitPoint: CGPoint, on screen: NSScreen)" in region, "coreGraphics point conversion missing")
         self.require("static func backingPixelPoint(from appKitPoint: CGPoint, on screen: NSScreen)" in region, "backing pixel point conversion missing")
         self.require("capture(region: ScreenCaptureRegion)" in service, "capture service must accept mapped region")
-        self.require("region.coreGraphicsRect" in service, "capture service must use CoreGraphics rect")
+        self.require("region.captureRequestRect" in service, "capture service must request an integral point rect")
+        self.require("cropRect: region.captureCropRect" in service, "capture service must crop back to exact pixels")
         self.require("expectedPixelSize: region.pixelSize" in service, "capture service must preserve expected pixel size")
-        self.require("rect," in service and "rect.integral" not in service, "capture must not re-integral already pixel-aligned rect")
         self.require("captureService.capture(region: region)" in app, "AppDelegate must capture mapped region")
 
         scale = 2
@@ -178,11 +181,14 @@ class FunctionalTestRunner:
         app = self.read("Sources/SnapMark/AppDelegate.swift")
 
         self.require("let pixelSize: CGSize" in region, "region must store selected pixel size")
+        self.require("let captureRequestRect: CGRect" in region, "region must store integral capture request rect")
+        self.require("let captureCropRect: CGRect" in region, "region must store pixel crop rect")
         self.require("maxX - minX" in region, "pixel width must derive from snapped pixel edges")
         self.require("maxY - minY" in region, "pixel height must derive from snapped pixel edges")
         self.require("func capture(region: ScreenCaptureRegion)" in service, "capture service must expose region capture")
         self.require("expectedPixelSize: region.pixelSize" in service, "region capture must pass expected pixel size")
-        self.require("size: expectedPixelSize ?? CGSize(width: cgImage.width, height: cgImage.height)" in service, "NSImage size must preserve expected capture pixels")
+        self.require("croppedImage(from: cgImage, cropRect: cropRect) ?? cgImage" in service, "region capture must normalize CGImage pixels through crop")
+        self.require("size: expectedPixelSize ?? CGSize(width: outputImage.width, height: outputImage.height)" in service, "NSImage size must preserve expected capture pixels")
         self.require("region.isCapturable" in app and "captureService.capture(region: region)" in app, "AppDelegate must guard and capture by region")
 
         selected_points = {"width": 30.5, "height": 40.5}
@@ -243,6 +249,35 @@ class FunctionalTestRunner:
         self.require(all(region_fixture == regions[0] for region_fixture in regions), "all drag directions must produce the same capture pixels")
         self.require(regions[0]["origin"] == expected_origin, f"capture origin should match selected top-left pixel, got {regions[0]['origin']}")
         self.require(regions[0]["size"] == (361, 239), f"unexpected snapped capture size: {regions[0]['size']}")
+
+    def case_region_half_pixel_capture_crop(self) -> None:
+        region = self.read("Sources/SnapMark/ScreenCaptureRegion.swift")
+        service = self.read("Sources/SnapMark/ScreenCaptureService.swift")
+        self.require("integralPointRect(containing:" in region, "region must build an integral point request rect")
+        self.require("floor(rect.minX)" in region and "ceil(rect.maxY)" in region, "request rect must cover fractional target edges")
+        self.require("cropRect(for rect" in region and "target.minY - request.minY" in region, "region must compute vertical pixel crop offset")
+        self.require("image.cropping(to: boundedRect)" in service, "capture service must crop requested image")
+
+        scale = 2
+        target_cg = {"x": 120.5, "y": 136.0, "width": 180.5, "height": 119.5}
+        target_pixels = self.pixel_rect(target_cg, scale)
+        request = self.integral_point_rect(target_cg)
+        request_pixels = self.pixel_rect(request, scale)
+        crop = {
+            "x": target_pixels["x"] - request_pixels["x"],
+            "y": target_pixels["y"] - request_pixels["y"],
+            "width": target_pixels["width"],
+            "height": target_pixels["height"],
+        }
+        direct_coregraphics_actual = {
+            "width": math.floor(target_cg["width"]) * scale,
+            "height": math.floor(target_cg["height"]) * scale,
+        }
+
+        self.require(target_pixels["height"] == 239, "fixture target vertical pixels should be 239")
+        self.require(direct_coregraphics_actual["height"] == 238, "fixture should reproduce direct CoreGraphics 1px vertical loss")
+        self.require(request_pixels["height"] == 240, "integer request should cover the target vertical pixels")
+        self.require(crop["height"] == target_pixels["height"], "crop height should restore exact target pixels")
 
     def case_selection_magnifier(self) -> None:
         magnifier = self.read("Sources/SnapMark/SelectionMagnifierRenderer.swift")
@@ -519,7 +554,7 @@ class FunctionalTestRunner:
             "Sources/SnapMark/SelectionCoordinateOverlay.swift": 130,
             "Sources/SnapMark/SelectionMagnifierGeometry.swift": 100,
             "Sources/SnapMark/SelectionMagnifierRenderer.swift": 180,
-            "Sources/SnapMark/ScreenCaptureRegion.swift": 140,
+            "Sources/SnapMark/ScreenCaptureRegion.swift": 170,
             "Sources/SnapMark/WindowInspector.swift": 140,
         }
         for relative, limit in limits.items():
@@ -547,6 +582,7 @@ class FunctionalTestRunner:
             "SMK-P0-SHOT-009",
             "SMK-P0-SHOT-010",
             "SMK-P0-SHOT-011",
+            "SMK-P0-SHOT-012",
             "SMK-P0-MAG-001",
             "SMK-P0-ANN-001",
             "SMK-P0-EDITOR-001",
@@ -593,6 +629,22 @@ class FunctionalTestRunner:
             "origin": (snapped_min_x, snapped_min_y),
             "size": (snapped_max_x - snapped_min_x, snapped_max_y - snapped_min_y),
         }
+
+    @staticmethod
+    def pixel_rect(rect: dict[str, float], scale: int) -> dict[str, int]:
+        min_x = round(rect["x"] * scale)
+        min_y = round(rect["y"] * scale)
+        max_x = round((rect["x"] + rect["width"]) * scale)
+        max_y = round((rect["y"] + rect["height"]) * scale)
+        return {"x": min_x, "y": min_y, "width": max_x - min_x, "height": max_y - min_y}
+
+    @staticmethod
+    def integral_point_rect(rect: dict[str, float]) -> dict[str, float]:
+        min_x = math.floor(rect["x"])
+        min_y = math.floor(rect["y"])
+        max_x = math.ceil(rect["x"] + rect["width"])
+        max_y = math.ceil(rect["y"] + rect["height"])
+        return {"x": min_x, "y": min_y, "width": max_x - min_x, "height": max_y - min_y}
 
     def case_app_bundle_resources(self) -> None:
         assert self.app is not None
