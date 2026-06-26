@@ -1,12 +1,17 @@
 import AppKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private static let authorContactEmail = "cdingstar@gmail.com"
+
     private let captureService = ScreenCaptureService()
     private let hotKeyManager = HotKeyManager()
     private var statusItem: NSStatusItem?
     private var regionMenuItem: NSMenuItem?
+    private var fullScreenMenuItem: NSMenuItem?
+    private var openFolderMenuItem: NSMenuItem?
     private var settingsMenuItem: NSMenuItem?
     private var aboutMenuItem: NSMenuItem?
+    private var quitMenuItem: NSMenuItem?
     private var registeredRegionShortcut: KeyboardShortcut?
     private var recordingPreviousRegionShortcut: KeyboardShortcut?
     private var isRecordingRegionShortcut = false
@@ -30,6 +35,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        closeAllTransientContexts()
+
         if let globalHotKeyHealthMonitor {
             NSEvent.removeMonitor(globalHotKeyHealthMonitor)
         }
@@ -55,26 +62,75 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.button?.title = ""
 
         let menu = NSMenu()
-        let regionItem = NSMenuItem(title: "区域截图", action: #selector(captureRegion), keyEquivalent: "")
+        let regionItem = menuItem(
+            title: L10n.text(.menuRegionCapture),
+            action: #selector(captureRegion),
+            keyEquivalent: "",
+            symbolName: "rectangle.dashed"
+        )
         regionMenuItem = regionItem
         menu.addItem(regionItem)
 
-        menu.addItem(NSMenuItem(title: "全屏截图", action: #selector(captureFullScreen), keyEquivalent: ""))
+        let fullScreenItem = menuItem(
+            title: L10n.text(.menuFullScreenCapture),
+            action: #selector(captureFullScreen),
+            keyEquivalent: "",
+            symbolName: "display"
+        )
+        fullScreenMenuItem = fullScreenItem
+        menu.addItem(fullScreenItem)
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "打开自动保存文件夹", action: #selector(openAutoSaveFolder), keyEquivalent: "o"))
-        let settingsItem = NSMenuItem(title: "设置...", action: #selector(openSettings), keyEquivalent: "")
+        let openFolderItem = menuItem(
+            title: L10n.text(.menuOpenAutoSaveFolder),
+            action: #selector(openAutoSaveFolder),
+            keyEquivalent: "o",
+            symbolName: "folder"
+        )
+        openFolderMenuItem = openFolderItem
+        menu.addItem(openFolderItem)
+        let settingsItem = menuItem(
+            title: L10n.text(.menuSettings),
+            action: #selector(openSettings),
+            keyEquivalent: "",
+            symbolName: "gearshape"
+        )
         settingsMenuItem = settingsItem
         menu.addItem(settingsItem)
-        let aboutItem = NSMenuItem(title: "关于 \(AppVersion.aboutVersionText)", action: #selector(showAbout), keyEquivalent: "")
+        let aboutItem = menuItem(
+            title: L10n.format(.menuAboutFormat, AppVersion.aboutVersionText),
+            action: #selector(showAbout),
+            keyEquivalent: "",
+            symbolName: "info.circle"
+        )
         aboutMenuItem = aboutItem
         menu.addItem(aboutItem)
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "退出", action: #selector(quit), keyEquivalent: "q"))
+        let quitItem = menuItem(
+            title: L10n.text(.menuQuit),
+            action: #selector(quit),
+            keyEquivalent: "q",
+            symbolName: "power"
+        )
+        quitMenuItem = quitItem
+        menu.addItem(quitItem)
 
         menu.items.forEach { $0.target = self }
         item.menu = menu
         statusItem = item
         updateStatusMetadata()
+    }
+
+    private func menuItem(title: String, action: Selector, keyEquivalent: String, symbolName: String) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: keyEquivalent)
+        item.image = menuIcon(symbolName)
+        return item
+    }
+
+    private func menuIcon(_ symbolName: String) -> NSImage? {
+        let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
+        image?.isTemplate = true
+        image?.size = NSSize(width: 16, height: 16)
+        return image
     }
 
     private func configureHotKeys() {
@@ -157,14 +213,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func configureResetMonitor() {
         globalResetMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard event.keyCode == 53 else { return }
+            guard ExitShortcut.matches(event), NSApp.isActive else { return }
             DispatchQueue.main.async {
                 self?.resetStatus()
             }
         }
 
         localResetMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard event.keyCode == 53 else { return event }
+            guard ExitShortcut.matches(event) else { return event }
             self?.resetStatus()
             return nil
         }
@@ -174,12 +230,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusTipPopover?.close()
         statusTipPopover = nil
 
-        selectionController?.cancel()
-        selectionController = nil
+        if let modalWindow = NSApp.modalWindow {
+            modalWindow.close()
+            return
+        }
 
-        settingsWindowController?.close()
-        editorWindows.forEach { $0.resetAndClose() }
+        if let controller = selectionController {
+            selectionController = nil
+            controller.cancel()
+            return
+        }
+
+        if let keyWindow = NSApp.keyWindow {
+            if let controller = editorWindows.first(where: { $0.window === keyWindow }) {
+                controller.closeForExit()
+                return
+            }
+
+            if let controller = settingsWindowController, controller.window === keyWindow {
+                closeSettingsWindow()
+                return
+            }
+
+            keyWindow.close()
+            return
+        }
+
+        if let controller = editorWindows.last {
+            controller.closeForExit()
+            return
+        }
+
+        closeSettingsWindow()
+    }
+
+    private func closeAllTransientContexts() {
+        statusTipPopover?.close()
+        statusTipPopover = nil
+
+        if let controller = selectionController {
+            selectionController = nil
+            controller.cancel()
+        }
+
+        closeSettingsWindow()
+
+        let windows = editorWindows
         editorWindows.removeAll()
+        windows.forEach { $0.closeForExit() }
+    }
+
+    private func closeSettingsWindow() {
+        guard let controller = settingsWindowController else { return }
+        settingsWindowController = nil
+        controller.close()
     }
 
     private func observePotentialRegionHotKey(_ event: NSEvent) {
@@ -254,6 +358,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     image = self.captureService.capture(region: region)
                 case .window(let target):
                     image = self.captureService.capture(windowID: target.windowID, fallbackRect: target.appKitBounds)
+                case .fullScreen:
+                    image = self.captureService.captureFullScreen()
                 }
 
                 if let image {
@@ -293,7 +399,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.applyRegionShortcut(shortcut) ?? false
         }
         controller.onSettingsChanged = { [weak self] in
+            self?.applyLanguage()
             self?.updateStatusMetadata()
+        }
+        controller.onClose = { [weak self, weak controller] in
+            guard
+                let self,
+                let controller,
+                self.settingsWindowController === controller
+            else { return }
+            self.settingsWindowController = nil
         }
         settingsWindowController = controller
         controller.showWindow(nil)
@@ -303,11 +418,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func showAbout() {
         let alert = NSAlert()
         alert.messageText = "SnapMark"
-        alert.informativeText = AppVersion.aboutVersionText
+        alert.informativeText = L10n.format(
+            .aboutInformativeTextFormat,
+            AppVersion.aboutVersionText,
+            L10n.text(.aboutAppDescription),
+            Self.authorContactEmail
+        )
         alert.alertStyle = .informational
-        alert.addButton(withTitle: "知道了")
+        alert.addButton(withTitle: L10n.text(.ok))
+        alert.addButton(withTitle: L10n.text(.contactAuthor))
         NSApp.activate(ignoringOtherApps: true)
-        alert.runModal()
+        if alert.runModal() == .alertSecondButtonReturn {
+            openAuthorMail()
+        }
+    }
+
+    private func openAuthorMail() {
+        guard let url = URL(string: "mailto:\(Self.authorContactEmail)") else { return }
+        NSWorkspace.shared.open(url)
     }
 
     @objc private func quit() {
@@ -384,22 +512,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateStatusMetadata() {
+        regionMenuItem?.title = L10n.text(.menuRegionCapture)
+        fullScreenMenuItem?.title = L10n.text(.menuFullScreenCapture)
+        openFolderMenuItem?.title = L10n.text(.menuOpenAutoSaveFolder)
+        quitMenuItem?.title = L10n.text(.menuQuit)
         if let shortcut = registeredRegionShortcut {
             statusItem?.button?.toolTip = statusToolTip(hotKey: shortcut.displayString)
-            settingsMenuItem?.title = "设置... \(shortcut.shortDisplayString)"
+            settingsMenuItem?.title = "\(L10n.text(.menuSettings)) \(shortcut.shortDisplayString)"
             regionMenuItem?.keyEquivalent = shortcut.keyEquivalent
             regionMenuItem?.keyEquivalentModifierMask = shortcut.modifierFlags
         } else {
-            statusItem?.button?.toolTip = statusToolTip(hotKey: "未设置")
-            settingsMenuItem?.title = "设置..."
+            statusItem?.button?.toolTip = statusToolTip(hotKey: L10n.text(.hotKeyUnset))
+            settingsMenuItem?.title = L10n.text(.menuSettings)
             regionMenuItem?.keyEquivalent = ""
             regionMenuItem?.keyEquivalentModifierMask = []
         }
-        aboutMenuItem?.title = "关于 \(AppVersion.aboutVersionText)"
+        aboutMenuItem?.title = L10n.format(.menuAboutFormat, AppVersion.aboutVersionText)
     }
 
     private func statusToolTip(hotKey: String) -> String {
-        "SnapMark V\(AppVersion.displayVersion)\n\n快捷键 \(hotKey)\n\nmailto: cdingstar@gmail.com"
+        L10n.format(.statusToolTipFormat, AppVersion.displayVersion, hotKey)
+    }
+
+    private func applyLanguage() {
+        updateStatusMetadata()
+        settingsWindowController?.applyLanguage()
+        editorWindows.forEach { $0.applyLanguage() }
     }
 
     private func ensureScreenAccess() -> Bool {
@@ -412,11 +550,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let alert = NSAlert()
-        alert.messageText = "需要屏幕录制权限"
-        alert.informativeText = "请在 系统设置 > 隐私与安全性 > 屏幕录制 中允许 SnapMark，然后重新截图。"
+        alert.messageText = L10n.text(.screenAccessTitle)
+        alert.informativeText = L10n.text(.screenAccessMessage)
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "打开系统设置")
-        alert.addButton(withTitle: "稍后")
+        alert.addButton(withTitle: L10n.text(.openSystemSettings))
+        alert.addButton(withTitle: L10n.text(.later))
         if alert.runModal() == .alertFirstButtonReturn {
             if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
                 NSWorkspace.shared.open(url)
@@ -439,24 +577,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showCaptureError() {
         let alert = NSAlert()
-        alert.messageText = "截图失败"
-        alert.informativeText = "没有拿到屏幕图像，请确认屏幕录制权限已开启。"
+        alert.messageText = L10n.text(.captureErrorTitle)
+        alert.informativeText = L10n.text(.captureErrorMessage)
         alert.alertStyle = .warning
         alert.runModal()
     }
 
     private func showShortcutError(_ shortcut: KeyboardShortcut, result: HotKeyRegistrationResult) {
         let alert = NSAlert()
-        alert.messageText = "快捷键设置失败"
-        alert.informativeText = hotKeyFailureMessage(for: shortcut, result: result) + "\n请重新选择 Hotkey。"
+        alert.messageText = L10n.text(.shortcutSetErrorTitle)
+        alert.informativeText = hotKeyFailureMessage(for: shortcut, result: result) + "\n" + L10n.text(.shortcutRetryMessage)
         alert.alertStyle = .warning
         alert.runModal()
     }
 
     private func showShortcutRestoreError(_ shortcut: KeyboardShortcut, result: HotKeyRegistrationResult) {
         let alert = NSAlert()
-        alert.messageText = "快捷键恢复失败"
-        alert.informativeText = hotKeyFailureMessage(for: shortcut, result: result) + "\n请重新选择 Hotkey。"
+        alert.messageText = L10n.text(.shortcutRestoreErrorTitle)
+        alert.informativeText = hotKeyFailureMessage(for: shortcut, result: result) + "\n" + L10n.text(.shortcutRetryMessage)
         alert.alertStyle = .warning
         alert.runModal()
     }
@@ -465,11 +603,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
             guard let self else { return }
             let alert = NSAlert()
-            alert.messageText = "截图快捷键不可用"
-            alert.informativeText = self.hotKeyFailureMessage(for: shortcut, result: result) + "\n请在设置中重新选择 Hotkey。"
+            alert.messageText = L10n.text(.shortcutUnavailableTitle)
+            alert.informativeText = self.hotKeyFailureMessage(for: shortcut, result: result) + "\n" + L10n.text(.shortcutResetMessage)
             alert.alertStyle = .warning
-            alert.addButton(withTitle: "打开设置")
-            alert.addButton(withTitle: "稍后")
+            alert.addButton(withTitle: L10n.text(.openSettings))
+            alert.addButton(withTitle: L10n.text(.later))
             NSApp.activate(ignoringOtherApps: true)
             if alert.runModal() == .alertFirstButtonReturn {
                 self.openSettings()
@@ -485,11 +623,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .joined(separator: "\n")
 
             let alert = NSAlert()
-            alert.messageText = "截图快捷键已自动调整"
-            alert.informativeText = "\(failedMessages)\n已自动改用 \(activeShortcut.displayString)。"
+            alert.messageText = L10n.text(.shortcutFallbackTitle)
+            alert.informativeText = L10n.format(.shortcutFallbackMessageFormat, failedMessages, activeShortcut.displayString)
             alert.alertStyle = .informational
-            alert.addButton(withTitle: "知道了")
-            alert.addButton(withTitle: "打开设置")
+            alert.addButton(withTitle: L10n.text(.ok))
+            alert.addButton(withTitle: L10n.text(.openSettings))
             NSApp.activate(ignoringOtherApps: true)
             if alert.runModal() == .alertSecondButtonReturn {
                 self.openSettings()
@@ -505,11 +643,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .joined(separator: "\n")
 
             let alert = NSAlert()
-            alert.messageText = "需要设置截图快捷键"
-            alert.informativeText = "\(failedMessages)\n默认快捷键都不可用，请在设置中重新选择 Hotkey。"
+            alert.messageText = L10n.text(.shortcutRequiredTitle)
+            alert.informativeText = "\(failedMessages)\n\(L10n.text(.shortcutResetMessage))"
             alert.alertStyle = .warning
-            alert.addButton(withTitle: "打开设置")
-            alert.addButton(withTitle: "稍后")
+            alert.addButton(withTitle: L10n.text(.openSettings))
+            alert.addButton(withTitle: L10n.text(.later))
             NSApp.activate(ignoringOtherApps: true)
             if alert.runModal() == .alertFirstButtonReturn {
                 self.openSettings()
@@ -519,22 +657,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func hotKeyFailureMessage(for shortcut: KeyboardShortcut, result: HotKeyRegistrationResult) -> String {
         if result.isOccupied {
-            return "\(shortcut.displayString) 已被其他应用程序或系统注册。macOS 未提供具体应用名称。"
+            return L10n.format(.shortcutOccupiedFormat, shortcut.displayString)
         }
 
         if result == .unresponsive {
-            return "\(shortcut.displayString) 注册成功但按下后没有触发 SnapMark，可能被其他应用拦截。"
+            return L10n.format(.shortcutUnresponsiveFormat, shortcut.displayString)
         }
 
         if let status = result.status {
-            return "\(shortcut.displayString) 注册失败（OSStatus \(status)）。"
+            return L10n.format(.shortcutStatusFailureFormat, shortcut.displayString, status)
         }
 
-        return "\(shortcut.displayString) 注册失败。"
+        return L10n.format(.shortcutFailureFormat, shortcut.displayString)
     }
 
     private func showHotKeyChangedTip(from oldShortcut: KeyboardShortcut, to newShortcut: KeyboardShortcut) {
-        let message = "快捷键已自动切换\n\n\(oldShortcut.displayString) 没有触发 SnapMark\n已改为 \(newShortcut.displayString)"
+        let message = L10n.format(.shortcutChangedTipFormat, oldShortcut.displayString, newShortcut.displayString)
         showStatusTip(message)
     }
 

@@ -13,7 +13,7 @@ enum TextAnnotationMetrics {
 
     static func fittedSize(for text: String, fontSize: CGFloat, maxWidth: CGFloat) -> CGSize {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let sample = trimmed.isEmpty ? "Text" : trimmed
+        let sample = trimmed.isEmpty ? L10n.text(.textDefault) : trimmed
         let font = NSFont.systemFont(ofSize: fontSize, weight: .semibold)
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byWordWrapping
@@ -54,7 +54,7 @@ final class TextAnnotationDialogController: NSWindowController, NSWindowDelegate
             backing: .buffered,
             defer: false
         )
-        window.title = "文字标注"
+        window.title = L10n.text(.textAnnotationTitle)
         window.isReleasedWhenClosed = false
         super.init(window: window)
         window.delegate = self
@@ -97,10 +97,10 @@ final class TextAnnotationDialogController: NSWindowController, NSWindowDelegate
         root.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(root)
 
-        let title = NSTextField(labelWithString: "添加文字")
+        let title = NSTextField(labelWithString: L10n.text(.addTextTitle))
         title.font = .systemFont(ofSize: 15, weight: .semibold)
 
-        let textLabel = fieldLabel("内容")
+        let textLabel = fieldLabel(L10n.text(.textContent))
         let scrollView = NSScrollView()
         scrollView.borderType = .bezelBorder
         scrollView.hasVerticalScroller = true
@@ -119,7 +119,7 @@ final class TextAnnotationDialogController: NSWindowController, NSWindowDelegate
         controls.alignment = .centerY
         controls.spacing = 18
 
-        let colorStack = labeledControl(title: "颜色", control: colorWell)
+        let colorStack = labeledControl(title: L10n.text(.textColor), control: colorWell)
         colorWell.target = self
         colorWell.action = #selector(colorChanged)
 
@@ -137,7 +137,7 @@ final class TextAnnotationDialogController: NSWindowController, NSWindowDelegate
         sizeStack.spacing = 8
 
         controls.addArrangedSubview(colorStack)
-        controls.addArrangedSubview(labeledControl(title: "字号", control: sizeStack))
+        controls.addArrangedSubview(labeledControl(title: L10n.text(.textFontSize), control: sizeStack))
 
         previewLabel.isBezeled = false
         previewLabel.drawsBackground = true
@@ -147,7 +147,7 @@ final class TextAnnotationDialogController: NSWindowController, NSWindowDelegate
         previewLabel.translatesAutoresizingMaskIntoConstraints = false
         previewLabel.widthAnchor.constraint(equalToConstant: 96).isActive = true
         previewLabel.heightAnchor.constraint(equalToConstant: 42).isActive = true
-        controls.addArrangedSubview(labeledControl(title: "预览", control: previewLabel))
+        controls.addArrangedSubview(labeledControl(title: L10n.text(.textPreview), control: previewLabel))
 
         let buttons = NSStackView()
         buttons.orientation = .horizontal
@@ -156,9 +156,9 @@ final class TextAnnotationDialogController: NSWindowController, NSWindowDelegate
         let spacer = NSView()
         spacer.translatesAutoresizingMaskIntoConstraints = false
         spacer.widthAnchor.constraint(greaterThanOrEqualToConstant: 190).isActive = true
-        let cancelButton = NSButton(title: "取消", target: self, action: #selector(cancel))
+        let cancelButton = NSButton(title: L10n.text(.cancel), target: self, action: #selector(cancel))
         cancelButton.keyEquivalent = "\u{1b}"
-        let addButton = NSButton(title: "添加", target: self, action: #selector(confirm))
+        let addButton = NSButton(title: L10n.text(.add), target: self, action: #selector(confirm))
         addButton.bezelStyle = .rounded
         addButton.keyEquivalent = "\r"
         buttons.addArrangedSubview(spacer)

@@ -13,7 +13,7 @@ struct WindowTarget: Equatable {
 }
 
 enum WindowInspector {
-    static func visibleWindowTargets(excludingOwnerNames excludedNames: Set<String>) -> [WindowTarget] {
+    static func visibleWindowTargets() -> [WindowTarget] {
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
             return []
         }
@@ -23,7 +23,6 @@ enum WindowInspector {
                 let windowIDNumber = info[kCGWindowNumber as String] as? NSNumber,
                 let ownerPIDNumber = info[kCGWindowOwnerPID as String] as? NSNumber,
                 let ownerName = info[kCGWindowOwnerName as String] as? String,
-                !excludedNames.contains(ownerName),
                 let layerNumber = info[kCGWindowLayer as String] as? NSNumber,
                 layerNumber.intValue == 0,
                 let bounds = bounds(from: info[kCGWindowBounds as String]),

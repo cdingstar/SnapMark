@@ -5,15 +5,22 @@ SnapMark 是一个 macOS 状态栏截图和标注工具，使用 Swift + AppKit 
 ## 功能
 
 - 区域截图
-- 全屏截图
-- 箭头、矩形、文字标注
+- 窗口截图
+- 全屏截图，包括截图选择模式下空白单击全屏
+- 箭头、形状、文字标注
 - 马赛克
 - 放大镜
+- Pen 自由画笔，支持 S/M/L 粗细
+- 手形工具，支持区域搬运/复制贴片和纯拖拉画布
+- 颜色选择，支持快速色、8x8 色盘、Hex 和透明度
+- 缩放信息、zoom slider、1:1 / Best Fit / Fit In 模式
 - 自动保存到 `~/Downloads`，可在设置中修改
 - 全局快捷键
 - 复制到剪贴板
-- 从编辑窗口拖拽 PNG 到其他应用
-- 设置窗口：快捷键、存储目录、开机启动
+- 保存 PNG
+- macOS 系统共享，支持 AirDrop、Mail 等服务
+- 设置窗口：快捷键、存储目录、语言、开机启动
+- About 窗口：版本、应用介绍、Mailto 和联系作者
 
 ## 快捷键
 
@@ -21,6 +28,13 @@ SnapMark 是一个 macOS 状态栏截图和标注工具，使用 Swift + AppKit 
 - 启动时如果 `Command + Control + A` 被占用，会自动尝试 `Command + Control + S`，再尝试 `Command + Control + Q`
 - 如果三个默认快捷键都不可用，会提示用户到设置中重新选择
 - 编辑窗口内 `Command + Z`: 撤销上一个标注
+- 截图选择、编辑窗口、设置窗口和弹窗中可按 `Esc` 或 `Command + Q` 退出当前模式或窗口
+
+## 产品与需求文档
+
+- 最终需求说明：[Docs/FinalRequirements.MD](Docs/FinalRequirements.MD)
+- UI 标注截图总览：[Docs/UIOverview.MD](Docs/UIOverview.MD)
+- 测试计划：[Docs/TestPlan.MD](Docs/TestPlan.MD)
 
 ## 开发运行
 

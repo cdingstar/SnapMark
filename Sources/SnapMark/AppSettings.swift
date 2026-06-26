@@ -12,6 +12,7 @@ final class AppSettings {
         static let shortcutEquivalent = "regionShortcut.keyEquivalent"
         static let shortcutDisplayKey = "regionShortcut.displayKey"
         static let saveDirectory = "saveDirectory"
+        static let languageSetting = "languageSetting"
     }
 
     private init() {}
@@ -57,6 +58,22 @@ final class AppSettings {
         }
         set {
             defaults.set(newValue.path, forKey: Key.saveDirectory)
+        }
+    }
+
+    var languageSetting: AppLanguageSetting {
+        get {
+            guard
+                let rawValue = defaults.string(forKey: Key.languageSetting),
+                let setting = AppLanguageSetting(rawValue: rawValue)
+            else {
+                return .system
+            }
+
+            return setting
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: Key.languageSetting)
         }
     }
 }

@@ -1,52 +1,39 @@
 import AppKit
 
-private enum ZoomPresetMode: CaseIterable {
-    case current
-    case actualSize
-    case bestFit
-    case fitIn
-
-    var title: String {
-        switch self {
-        case .current:
-            return "当前"
-        case .actualSize:
-            return "100%"
-        case .bestFit:
-            return "Best Fit"
-        case .fitIn:
-            return "Fit In"
-        }
-    }
-}
-
 final class EditorWindowController: NSWindowController, NSWindowDelegate, NSToolbarDelegate, NSMenuDelegate {
-    private static let minimumToolbarWindowWidth: CGFloat = 1100
+    private static let minimumToolbarWindowWidth: CGFloat = 1140
     private static let minimumWindowHeight: CGFloat = 360
     private static let imageSizeToolbarWidth: CGFloat = 256
-    private static let toolsToolbarWidth: CGFloat = 366
-    private static let colorToolbarWidth: CGFloat = 34
-    private static let dragCopyToolbarWidth: CGFloat = 28
+    private static let toolsToolbarWidth: CGFloat = 260
+    private static let colorToolbarWidth: CGFloat = 66
+    private static let actionsToolbarWidth: CGFloat = 136
+    private static let toolbarSeparatorWidth: CGFloat = 14
+    static let zoomScaleTolerance: CGFloat = 0.0005
 
     var onClose: (() -> Void)?
 
-    private let scrollView = NSScrollView()
-    private let canvasView: EditorCanvasView
-    private let saveURL: URL
-    private var autosaveWorkItem: DispatchWorkItem?
-    private var shouldSaveOnClose = true
-    private let imagePixelSize: CGSize
-    private var toolControl: NSSegmentedControl?
-    private var annotationColorWell: NSColorWell?
-    private var penSizeMenu: NSMenu?
-    private var zoomInfoControl: ZoomInfoSliderView?
-    private var fitZoomButton: NSButton?
-    private var nextZoomPresetIndex = 1
+    let scrollView = NSScrollView()
+    let canvasView: EditorCanvasView
+    let originalSaveURL: URL
+    var editedSaveURL: URL?
+    var autosaveWorkItem: DispatchWorkItem?
+    var hasUserEdits = false
+    var didReleaseWindowResources = false
+    let imagePixelSize: CGSize
+    var toolControl: NSSegmentedControl?
+    var annotationColorControl: AnnotationColorPickerView?
+    var penSizeMenu: NSMenu?
+    var zoomInfoControl: ZoomInfoSliderView?
+    var fitZoomButton: NSButton?
+    private var shouldApplyInitialViewportFit = true
+    var currentSaveURL: URL {
+        editedSaveURL ?? originalSaveURL
+    }
 
     init(image: NSImage) {
         imagePixelSize = image.snapMarkPixelSize
         canvasView = EditorCanvasView(image: image)
-        saveURL = AutoSaveStore.newCaptureURL()
+        originalSaveURL = AutoSaveStore.newCaptureURL()
 
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
@@ -82,12 +69,12 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             object: scrollView.contentView
         )
         canvasView.onAnnotationsChanged = { [weak self] in
-            self?.scheduleAutosave()
+            self?.handleAnnotationsChanged()
         }
         canvasView.onResetRequested = { [weak self] in
-            self?.resetAndClose()
+            self?.closeForExit()
         }
-        try? AutoSaveStore.save(image, to: saveURL)
+        try? AutoSaveStore.save(image, to: originalSaveURL)
     }
 
     required init?(coder: NSCoder) {
@@ -101,6 +88,11 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     override func showWindow(_ sender: Any?) {
         super.showWindow(sender)
         updateCanvasViewport()
+        if shouldApplyInitialViewportFit {
+            canvasView.setZoomScale(canvasView.fitZoomScale(for: scrollView.contentView.bounds.size))
+            updateZoomUI()
+            shouldApplyInitialViewportFit = false
+        }
         canvasView.scrollToVisible(canvasView.canvasCenterRect)
         window?.center()
         window?.makeKeyAndOrderFront(sender)
@@ -108,24 +100,22 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
 
     func windowWillClose(_ notification: Notification) {
         autosaveWorkItem?.cancel()
-        if shouldSaveOnClose {
-            try? AutoSaveStore.save(canvasView.renderedImage(), to: saveURL)
-        }
+        autosaveWorkItem = nil
+        saveEditedImageIfNeeded()
+        releaseWindowResources()
         onClose?()
     }
 
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 53 {
-            resetAndClose()
+        if ExitShortcut.matches(event) {
+            closeForExit()
             return
         }
 
         super.keyDown(with: event)
     }
 
-    func resetAndClose() {
-        autosaveWorkItem?.cancel()
-        shouldSaveOnClose = false
+    func closeForExit() {
         close()
     }
 
@@ -153,8 +143,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         toolbar.sizeMode = .small
         toolbar.allowsUserCustomization = false
         window?.toolbar = toolbar
+        window?.titlebarAppearsTransparent = false
         if #available(macOS 11.0, *) {
             window?.toolbarStyle = .unifiedCompact
+            window?.titlebarSeparatorStyle = .line
         }
     }
 
@@ -166,12 +158,12 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         [
             .imageSize,
             .flexibleSpace,
+            .toolbarGroupSeparatorOne,
             .tools,
+            .toolbarGroupSeparatorTwo,
             .color,
-            .undo,
-            .copy,
-            .save,
-            .dragCopy
+            .toolbarGroupSeparatorThree,
+            .actions
         ]
     }
 
@@ -179,9 +171,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         switch itemIdentifier {
         case .imageSize:
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = "缩放"
-            item.paletteLabel = "缩放"
-            item.toolTip = "缩放和截图尺寸"
+            item.label = L10n.text(.toolbarZoom)
+            item.paletteLabel = L10n.text(.toolbarZoom)
+            item.toolTip = L10n.text(.toolbarZoomTooltip)
 
             let zoomControl = ZoomInfoSliderView(
                 value: canvasView.zoomScale,
@@ -189,6 +181,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
                 maxValue: EditorCanvasView.maximumZoomScale
             )
             zoomControl.translatesAutoresizingMaskIntoConstraints = false
+            zoomControl.toolTip = L10n.text(.toolbarZoomTooltip)
             zoomControl.widthAnchor.constraint(equalToConstant: 210).isActive = true
             zoomControl.heightAnchor.constraint(equalToConstant: 28).isActive = true
             zoomControl.onZoomChanged = { [weak self] scale in
@@ -196,7 +189,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             }
 
             let fitButton = NSButton(title: "", target: self, action: #selector(cycleZoomPreset))
-            fitButton.image = NSImage(systemSymbolName: "arrow.up.left.and.arrow.down.right", accessibilityDescription: "适应")
+            fitButton.image = NSImage(systemSymbolName: "arrow.up.left.and.arrow.down.right", accessibilityDescription: L10n.text(.toolbarFit))
             fitButton.imagePosition = .imageOnly
             fitButton.bezelStyle = .texturedRounded
             fitButton.controlSize = .small
@@ -209,7 +202,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             stack.alignment = .centerY
             stack.spacing = 6
             stack.translatesAutoresizingMaskIntoConstraints = false
-            item.view = stack
+            item.view = toolbarGroupView(containing: stack)
             lockToolbarItem(item, width: Self.imageSizeToolbarWidth)
             zoomInfoControl = zoomControl
             fitZoomButton = fitButton
@@ -219,10 +212,12 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
 
         case .tools:
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = "工具"
+            item.label = L10n.text(.toolbarTools)
+            item.paletteLabel = L10n.text(.toolbarTools)
+            item.toolTip = L10n.text(.toolbarToolsTooltip)
 
             let control = NSSegmentedControl(
-                labels: AnnotationTool.allCases.map(\.title),
+                images: AnnotationTool.allCases.map { EditorToolbarImages.toolImage(for: $0) },
                 trackingMode: .selectOne,
                 target: self,
                 action: #selector(changeTool)
@@ -230,76 +225,63 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             control.controlSize = .small
             control.segmentStyle = .texturedRounded
             control.selectedSegment = canvasView.currentTool.rawValue
-            control.setWidth(52, forSegment: AnnotationTool.arrow.rawValue)
-            control.setWidth(52, forSegment: AnnotationTool.rectangle.rawValue)
-            control.setWidth(48, forSegment: AnnotationTool.text.rawValue)
-            control.setWidth(62, forSegment: AnnotationTool.mosaic.rawValue)
-            control.setWidth(62, forSegment: AnnotationTool.magnifier.rawValue)
-            control.setWidth(88, forSegment: AnnotationTool.pen.rawValue)
+            control.setWidth(32, forSegment: AnnotationTool.arrow.rawValue)
+            control.setWidth(32, forSegment: AnnotationTool.rectangle.rawValue)
+            control.setWidth(32, forSegment: AnnotationTool.text.rawValue)
+            control.setWidth(34, forSegment: AnnotationTool.mosaic.rawValue)
+            control.setWidth(34, forSegment: AnnotationTool.magnifier.rawValue)
+            control.setWidth(44, forSegment: AnnotationTool.pen.rawValue)
+            control.setWidth(32, forSegment: AnnotationTool.hand.rawValue)
+            configureToolTips(for: control)
             control.setMenu(makePenSizeMenu(), forSegment: AnnotationTool.pen.rawValue)
             control.setShowsMenuIndicator(true, forSegment: AnnotationTool.pen.rawValue)
-            item.view = control
+            item.view = toolbarGroupView(containing: control)
             lockToolbarItem(item, width: Self.toolsToolbarWidth)
             toolControl = control
-            updatePenSegmentTitle()
+            updatePenSegmentImage()
+            updatePenSegmentTooltip()
             updateToolOptions()
             return item
 
         case .color:
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = "颜色"
-            item.paletteLabel = "颜色"
-            item.toolTip = "新标注颜色"
+            item.label = L10n.text(.toolbarColor)
+            item.paletteLabel = L10n.text(.toolbarColor)
+            item.toolTip = L10n.text(.toolbarNewAnnotationColor)
 
-            let colorWell = NSColorWell(frame: CGRect(x: 0, y: 0, width: 26, height: 22))
-            colorWell.color = canvasView.annotationColor
-            colorWell.target = self
-            colorWell.action = #selector(changeAnnotationColor)
-            colorWell.controlSize = .small
-            item.view = colorWell
+            let colorControl = AnnotationColorPickerView(color: canvasView.annotationColor)
+            colorControl.onColorChanged = { [weak self] color in
+                self?.canvasView.annotationColor = color
+            }
+            item.view = toolbarGroupView(containing: colorControl, horizontalPadding: 5)
             lockToolbarItem(item, width: Self.colorToolbarWidth)
-            annotationColorWell = colorWell
+            annotationColorControl = colorControl
             return item
 
-        case .undo:
-            return toolbarButton(
-                identifier: itemIdentifier,
-                label: "撤销",
-                symbolName: "arrow.uturn.backward",
-                action: #selector(undo)
-            )
-
-        case .copy:
-            return toolbarButton(
-                identifier: itemIdentifier,
-                label: "复制",
-                symbolName: "doc.on.doc",
-                action: #selector(copyImage)
-            )
-
-        case .save:
-            return toolbarButton(
-                identifier: itemIdentifier,
-                label: "保存",
-                symbolName: "square.and.arrow.down",
-                action: #selector(saveImage)
-            )
-
-        case .dragCopy:
+        case .actions:
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = "拖拽复制"
-            item.paletteLabel = "拖拽复制"
-            item.toolTip = "拖拽复制"
-            let button = DragExportButton(title: "", target: nil, action: nil)
-            button.image = NSImage(systemSymbolName: "hand.draw", accessibilityDescription: "拖拽复制")
-            button.imagePosition = .imageOnly
-            button.bezelStyle = .texturedRounded
-            button.controlSize = .small
-            button.toolTip = "拖拽复制"
-            button.heightAnchor.constraint(equalToConstant: 24).isActive = true
-            button.imageProvider = { [weak self] in self?.canvasView.renderedImage() }
-            item.view = button
-            lockToolbarItem(item, width: Self.dragCopyToolbarWidth)
+            item.label = L10n.text(.toolbarActions)
+            item.paletteLabel = L10n.text(.toolbarActions)
+            item.toolTip = L10n.text(.toolbarActionsTooltip)
+
+            let stack = NSStackView(views: [
+                toolbarIconButton(role: .undo, symbolName: "arrow.uturn.backward", action: #selector(undo)),
+                toolbarIconButton(role: .copy, symbolName: "doc.on.doc", action: #selector(copyImage)),
+                toolbarIconButton(role: .save, symbolName: "square.and.arrow.down", action: #selector(saveImage)),
+                toolbarIconButton(role: .share, symbolName: "square.and.arrow.up", action: #selector(shareImage(_:)))
+            ])
+            stack.orientation = .horizontal
+            stack.alignment = .centerY
+            stack.spacing = 4
+            stack.translatesAutoresizingMaskIntoConstraints = false
+            item.view = toolbarGroupView(containing: stack)
+            lockToolbarItem(item, width: Self.actionsToolbarWidth)
+            return item
+
+        case .toolbarGroupSeparatorOne, .toolbarGroupSeparatorTwo, .toolbarGroupSeparatorThree:
+            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.view = ToolbarGroupSeparatorView()
+            lockToolbarItem(item, width: Self.toolbarSeparatorWidth)
             return item
 
         default:
@@ -307,208 +289,36 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         }
     }
 
-    @objc private func changeTool(_ sender: NSSegmentedControl) {
-        guard let tool = AnnotationTool(rawValue: sender.selectedSegment) else { return }
-        if tool == .pen, canvasView.currentTool == .pen {
-            cyclePenSize()
-        }
-        canvasView.currentTool = tool
-        updateToolOptions()
-    }
-
-    @objc private func changeAnnotationColor(_ sender: NSColorWell) {
-        canvasView.annotationColor = sender.color
-    }
-
-    @objc private func choosePenSize(_ sender: NSMenuItem) {
-        guard let size = PenSize(rawValue: sender.tag) else { return }
-        canvasView.penSize = size
-        canvasView.currentTool = .pen
-        toolControl?.selectedSegment = AnnotationTool.pen.rawValue
-        updatePenSegmentTitle()
-        updateToolOptions()
-    }
-
-    private func setZoomScaleFromSlider(_ scale: CGFloat) {
-        updateCanvasViewport()
-        canvasView.setZoomScale(scale)
-        updateZoomUI()
-        canvasView.scrollToVisible(canvasView.canvasCenterRect)
-    }
-
-    @objc private func cycleZoomPreset() {
-        let modes = ZoomPresetMode.allCases
-        let mode = modes[nextZoomPresetIndex % modes.count]
-        applyZoomPreset(mode)
-        nextZoomPresetIndex = (nextZoomPresetIndex + 1) % modes.count
-        updateFitZoomTooltip()
-    }
-
-    private func applyZoomPreset(_ mode: ZoomPresetMode) {
-        updateCanvasViewport()
-        switch mode {
-        case .current:
-            break
-        case .actualSize:
-            canvasView.setZoomScale(1)
-        case .bestFit:
-            canvasView.setZoomScale(canvasView.bestFitZoomScale(for: scrollView.contentView.bounds.size))
-        case .fitIn:
-            canvasView.setZoomScale(canvasView.fitInZoomScale(for: scrollView.contentView.bounds.size))
-        }
-        updateZoomUI()
-        canvasView.scrollToVisible(canvasView.canvasCenterRect)
-    }
-
-    @objc private func scrollViewBoundsDidChange(_ notification: Notification) {
-        updateCanvasViewport()
-    }
-
-    @objc private func undo() {
-        canvasView.undoLastAnnotation()
-    }
-
-    @objc private func copyImage() {
-        guard let data = canvasView.renderedImage().pngData else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setData(data, forType: .png)
-    }
-
-    @objc private func saveImage() {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.png]
-        panel.nameFieldStringValue = saveURL.lastPathComponent
-        panel.directoryURL = saveURL.deletingLastPathComponent()
-
-        panel.beginSheetModal(for: window!) { [weak self] response in
-            guard response == .OK, let url = panel.url, let self else { return }
-            do {
-                try AutoSaveStore.save(self.canvasView.renderedImage(), to: url)
-            } catch {
-                self.presentSaveError(error)
+    func applyLanguage() {
+        window?.toolbar?.items.forEach { item in
+            switch item.itemIdentifier {
+            case .imageSize:
+                item.label = L10n.text(.toolbarZoom)
+                item.paletteLabel = L10n.text(.toolbarZoom)
+                item.toolTip = L10n.text(.toolbarZoomTooltip)
+                zoomInfoControl?.toolTip = L10n.text(.toolbarZoomTooltip)
+            case .tools:
+                item.label = L10n.text(.toolbarTools)
+                item.paletteLabel = L10n.text(.toolbarTools)
+                item.toolTip = L10n.text(.toolbarToolsTooltip)
+            case .color:
+                item.label = L10n.text(.toolbarColor)
+                item.paletteLabel = L10n.text(.toolbarColor)
+                item.toolTip = L10n.text(.toolbarNewAnnotationColor)
+            case .actions:
+                item.label = L10n.text(.toolbarActions)
+                item.paletteLabel = L10n.text(.toolbarActions)
+                item.toolTip = L10n.text(.toolbarActionsTooltip)
+                refreshActionButtonToolTips(in: item.view)
+            default:
+                break
             }
         }
+        annotationColorControl?.applyLanguage()
+        configureToolTips()
+        fitZoomButton?.image = NSImage(systemSymbolName: "arrow.up.left.and.arrow.down.right", accessibilityDescription: L10n.text(.toolbarFit))
+        refreshPenSizeMenuLanguage()
+        updateToolOptions()
+        updateZoomUI()
     }
-
-    private func scheduleAutosave() {
-        autosaveWorkItem?.cancel()
-
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            do {
-                try AutoSaveStore.save(self.canvasView.renderedImage(), to: self.saveURL)
-            } catch {
-                self.presentSaveError(error)
-            }
-        }
-        autosaveWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7, execute: workItem)
-    }
-
-    private func presentSaveError(_ error: Error) {
-        let alert = NSAlert(error: error)
-        alert.messageText = "保存失败"
-        if let window {
-            alert.beginSheetModal(for: window)
-        } else {
-            alert.runModal()
-        }
-    }
-
-    private func updateCanvasViewport() {
-        canvasView.updateViewportSize(scrollView.contentView.bounds.size)
-    }
-
-    private func updateZoomUI() {
-        zoomInfoControl?.update(
-            zoomText: Self.formatZoom(canvasView.zoomScale),
-            imageSizeText: Self.formatImageSize(imagePixelSize),
-            zoomScale: canvasView.zoomScale
-        )
-    }
-
-    private func updateToolOptions() {
-        annotationColorWell?.isEnabled = true
-        updatePenSegmentTitle()
-        updatePenSizeMenuState()
-    }
-
-    private func makePenSizeMenu() -> NSMenu {
-        let menu = NSMenu(title: "Pen 大小")
-        menu.delegate = self
-        for size in PenSize.allCases {
-            let item = NSMenuItem(title: "Pen \(size.title)", action: #selector(choosePenSize), keyEquivalent: "")
-            item.target = self
-            item.tag = size.rawValue
-            menu.addItem(item)
-        }
-        penSizeMenu = menu
-        updatePenSizeMenuState()
-        return menu
-    }
-
-    func menuWillOpen(_ menu: NSMenu) {
-        if menu == penSizeMenu {
-            updatePenSizeMenuState()
-        }
-    }
-
-    private func updatePenSegmentTitle() {
-        toolControl?.setLabel("Pen \(canvasView.penSize.title)", forSegment: AnnotationTool.pen.rawValue)
-    }
-
-    private func updatePenSizeMenuState() {
-        penSizeMenu?.items.forEach { item in
-            item.state = item.tag == canvasView.penSize.rawValue ? .on : .off
-        }
-    }
-
-    private func cyclePenSize() {
-        let sizes = PenSize.allCases
-        guard let index = sizes.firstIndex(of: canvasView.penSize) else { return }
-        canvasView.penSize = sizes[(index + 1) % sizes.count]
-        updatePenSegmentTitle()
-        updatePenSizeMenuState()
-    }
-
-    private func updateFitZoomTooltip() {
-        let modes = ZoomPresetMode.allCases
-        let mode = modes[nextZoomPresetIndex % modes.count]
-        fitZoomButton?.toolTip = "缩放模式：\(mode.title)"
-    }
-
-    private static func formatImageSize(_ size: CGSize) -> String {
-        "\(Int(size.width.rounded())) x \(Int(size.height.rounded())) px"
-    }
-
-    private static func formatZoom(_ scale: CGFloat) -> String {
-        "\(Int((scale * 100).rounded()))%"
-    }
-
-    private func toolbarButton(identifier: NSToolbarItem.Identifier, label: String, symbolName: String, action: Selector) -> NSToolbarItem {
-        let item = NSToolbarItem(itemIdentifier: identifier)
-        item.label = label
-        item.paletteLabel = label
-        item.toolTip = label
-        item.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: label)
-        item.target = self
-        item.action = action
-        return item
-    }
-
-    private func lockToolbarItem(_ item: NSToolbarItem, width: CGFloat) {
-        guard let view = item.view else { return }
-        view.translatesAutoresizingMaskIntoConstraints = false
-        view.widthAnchor.constraint(equalToConstant: width).isActive = true
-    }
-}
-
-private extension NSToolbarItem.Identifier {
-    static let imageSize = NSToolbarItem.Identifier("SnapMark.ImageSize")
-    static let tools = NSToolbarItem.Identifier("SnapMark.Tools")
-    static let color = NSToolbarItem.Identifier("SnapMark.Color")
-    static let undo = NSToolbarItem.Identifier("SnapMark.Undo")
-    static let copy = NSToolbarItem.Identifier("SnapMark.Copy")
-    static let save = NSToolbarItem.Identifier("SnapMark.Save")
-    static let dragCopy = NSToolbarItem.Identifier("SnapMark.DragCopy")
 }

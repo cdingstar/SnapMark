@@ -7,22 +7,29 @@ enum AnnotationTool: Int, CaseIterable {
     case mosaic
     case magnifier
     case pen
+    case hand
 
     var title: String {
         switch self {
         case .arrow:
-            return "Arrow"
+            return L10n.text(.toolArrow)
         case .rectangle:
-            return "Rect"
+            return L10n.text(.toolRectangle)
         case .text:
-            return "Text"
+            return L10n.text(.toolText)
         case .mosaic:
-            return "Mosaic"
+            return L10n.text(.toolMosaic)
         case .magnifier:
-            return "Lens"
+            return L10n.text(.toolMagnifier)
         case .pen:
-            return "Pen"
+            return L10n.text(.toolPen)
+        case .hand:
+            return L10n.text(.toolHand)
         }
+    }
+
+    var displayTitle: String {
+        title
     }
 
     var symbolName: String {
@@ -39,6 +46,8 @@ enum AnnotationTool: Int, CaseIterable {
             return "plus.magnifyingglass"
         case .pen:
             return "pen"
+        case .hand:
+            return "hand.raised"
         }
     }
 }
@@ -71,8 +80,70 @@ enum PenSize: Int, CaseIterable {
     }
 }
 
+enum ShapeMode: Int, CaseIterable {
+    case rectangle
+    case circle
+    case ellipse
+
+    var title: String {
+        switch self {
+        case .rectangle:
+            return L10n.text(.shapeRectangle)
+        case .circle:
+            return L10n.text(.shapeCircle)
+        case .ellipse:
+            return L10n.text(.shapeEllipse)
+        }
+    }
+}
+
+enum ArrowMode: Int, CaseIterable {
+    case solid
+    case notched
+    case line
+
+    var title: String {
+        switch self {
+        case .solid:
+            return L10n.text(.arrowSolid)
+        case .notched:
+            return L10n.text(.arrowNotched)
+        case .line:
+            return L10n.text(.arrowLine)
+        }
+    }
+}
+
+enum MosaicMode: Int, CaseIterable {
+    case plain
+    case bordered
+
+    var title: String {
+        switch self {
+        case .plain:
+            return L10n.text(.mosaicPlain)
+        case .bordered:
+            return L10n.text(.mosaicBordered)
+        }
+    }
+}
+
+enum HandMode: Int, CaseIterable {
+    case selection
+    case pan
+
+    var title: String {
+        switch self {
+        case .selection:
+            return L10n.text(.handSelection)
+        case .pan:
+            return L10n.text(.handPan)
+        }
+    }
+}
+
 struct Annotation: Identifiable {
-    let id = UUID()
+    var id = UUID()
     var tool: AnnotationTool
     var start: CGPoint
     var end: CGPoint
@@ -81,6 +152,10 @@ struct Annotation: Identifiable {
     var lineWidth: CGFloat = 4
     var fontSize: CGFloat = TextAnnotationMetrics.defaultFontSize
     var points: [CGPoint] = []
+    var shapeMode: ShapeMode = .rectangle
+    var arrowMode: ArrowMode = .solid
+    var mosaicMode: MosaicMode = .plain
+    var imagePatch: NSImage?
 
     var rect: CGRect {
         CGRect(

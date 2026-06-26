@@ -4,6 +4,7 @@ import CoreGraphics
 final class ScreenSelectionView: NSView {
     var onRegionComplete: ((CGRect) -> Void)?
     var onWindowComplete: ((WindowTarget) -> Void)?
+    var onFullScreenComplete: (() -> Void)?
     var onCancel: (() -> Void)?
 
     private let magnifier: SelectionMagnifierRenderer
@@ -108,9 +109,14 @@ final class ScreenSelectionView: NSView {
     override func mouseUp(with event: NSEvent) {
         let point = clamped(convert(event.locationInWindow, from: nil))
         currentPoint = point
+        hoveredWindow = windowTarget(at: point)
 
-        if !isDraggingSelection, let target = pressedWindow ?? hoveredWindow {
-            onWindowComplete?(target)
+        if !isDraggingSelection {
+            if let target = pressedWindow ?? hoveredWindow {
+                onWindowComplete?(target)
+            } else {
+                onFullScreenComplete?()
+            }
             return
         }
 
@@ -124,7 +130,7 @@ final class ScreenSelectionView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 53 {
+        if ExitShortcut.matches(event) {
             cancelFromKeyboard()
             return
         }
@@ -199,7 +205,7 @@ final class ScreenSelectionView: NSView {
     }
 
     private func drawWindowLabel(_ title: String, near rect: CGRect) {
-        let text = "\(title)  点击截取窗口 · 拖拽选择区域"
+        let text = L10n.format(.selectionWindowHintFormat, title)
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 13, weight: .semibold),
             .foregroundColor: NSColor.white

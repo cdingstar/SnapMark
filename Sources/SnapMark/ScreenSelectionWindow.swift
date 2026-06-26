@@ -10,7 +10,7 @@ final class ScreenSelectionWindow: NSWindow {
     }
 
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 53, let selectionView = contentView as? ScreenSelectionView {
+        if ExitShortcut.matches(event), let selectionView = contentView as? ScreenSelectionView {
             selectionView.cancelFromKeyboard()
             return
         }

@@ -16,13 +16,30 @@ enum AnnotationInteractionMode {
 
 extension AnnotationTool {
     var isTransformableElement: Bool {
-        self != .pen
+        self != .pen && self != .hand
+    }
+
+    var isDeletableElement: Bool {
+        switch self {
+        case .arrow, .rectangle, .text:
+            return true
+        case .mosaic, .magnifier, .pen, .hand:
+            return false
+        }
     }
 }
 
 extension Annotation {
+    var isImagePatch: Bool {
+        tool == .hand && imagePatch != nil
+    }
+
     var isTransformableElement: Bool {
-        tool.isTransformableElement
+        isImagePatch || tool.isTransformableElement
+    }
+
+    var isDeletableElement: Bool {
+        isImagePatch || tool.isDeletableElement
     }
 
     func contains(point: CGPoint, tolerance: CGFloat) -> Bool {
@@ -36,6 +53,8 @@ extension Annotation {
             return rect.insetBy(dx: -tolerance, dy: -tolerance).contains(point)
         case .rectangle, .text, .mosaic:
             return rect.insetBy(dx: -tolerance, dy: -tolerance).contains(point)
+        case .hand:
+            return isImagePatch && rect.insetBy(dx: -tolerance, dy: -tolerance).contains(point)
         case .pen:
             return false
         }

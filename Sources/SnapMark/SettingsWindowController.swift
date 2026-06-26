@@ -5,19 +5,22 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     var onShortcutRecordingCancelled: (() -> KeyboardShortcut?)?
     var onShortcutChanged: ((KeyboardShortcut) -> Bool)?
     var onSettingsChanged: (() -> Void)?
+    var onClose: (() -> Void)?
 
     private let shortcutButton = ShortcutRecorderButton()
     private let directoryField = NSTextField(labelWithString: "")
-    private let launchAtLoginCheckbox = NSButton(checkboxWithTitle: "允许自动开机启动", target: nil, action: nil)
+    private let languagePopup = NSPopUpButton()
+    private let launchAtLoginCheckbox = NSButton(checkboxWithTitle: "", target: nil, action: nil)
+    private var didConfigureStableControlConstraints = false
 
     init() {
         let window = NSWindow(
-            contentRect: CGRect(x: 0, y: 0, width: 520, height: 250),
+            contentRect: CGRect(x: 0, y: 0, width: 520, height: 304),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
-        window.title = "设置"
+        window.title = L10n.text(.settingsTitle)
         window.isReleasedWhenClosed = false
         super.init(window: window)
         window.delegate = self
@@ -30,6 +33,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     }
 
     override func showWindow(_ sender: Any?) {
+        buildContent()
         reload()
         super.showWindow(sender)
         window?.center()
@@ -38,10 +42,15 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         shortcutButton.stopRecording()
+        onClose?()
     }
 
     private func buildContent() {
         guard let contentView = window?.contentView else { return }
+        contentView.subviews.forEach { $0.removeFromSuperview() }
+        window?.title = L10n.text(.settingsTitle)
+        launchAtLoginCheckbox.title = L10n.text(.settingsLaunchAtLogin)
+        configureStableControlConstraints()
 
         let rootStack = NSStackView()
         rootStack.orientation = .vertical
@@ -60,11 +69,12 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
         rootStack.addArrangedSubview(shortcutRow())
         rootStack.addArrangedSubview(directoryRow())
+        rootStack.addArrangedSubview(languageRow())
         rootStack.addArrangedSubview(launchAtLoginRow())
     }
 
     private func shortcutRow() -> NSView {
-        let row = labeledRow(title: "快捷键")
+        let row = labeledRow(title: L10n.text(.settingsShortcut))
         shortcutButton.bezelStyle = .rounded
         shortcutButton.alignment = .center
         shortcutButton.target = shortcutButton
@@ -83,28 +93,39 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             }
             return didApply
         }
-        shortcutButton.widthAnchor.constraint(equalToConstant: 210).isActive = true
         row.addArrangedSubview(shortcutButton)
         return row
     }
 
     private func directoryRow() -> NSView {
-        let row = labeledRow(title: "存储目录")
+        let row = labeledRow(title: L10n.text(.settingsSaveDirectory))
 
         directoryField.lineBreakMode = .byTruncatingMiddle
         directoryField.maximumNumberOfLines = 1
-        directoryField.widthAnchor.constraint(equalToConstant: 270).isActive = true
         row.addArrangedSubview(directoryField)
 
-        let chooseButton = NSButton(title: "选择...", target: self, action: #selector(chooseDirectory))
+        let chooseButton = NSButton(title: L10n.text(.settingsChoose), target: self, action: #selector(chooseDirectory))
         chooseButton.bezelStyle = .rounded
         row.addArrangedSubview(chooseButton)
 
         return row
     }
 
+    private func languageRow() -> NSView {
+        let row = labeledRow(title: L10n.text(.settingsLanguage))
+        languagePopup.removeAllItems()
+        for setting in AppLanguageSetting.allCases {
+            languagePopup.addItem(withTitle: setting.localizedTitle)
+            languagePopup.lastItem?.representedObject = setting.rawValue
+        }
+        languagePopup.target = self
+        languagePopup.action = #selector(changeLanguage)
+        row.addArrangedSubview(languagePopup)
+        return row
+    }
+
     private func launchAtLoginRow() -> NSView {
-        let row = labeledRow(title: "启动方式")
+        let row = labeledRow(title: L10n.text(.settingsLaunchMode))
         launchAtLoginCheckbox.target = self
         launchAtLoginCheckbox.action = #selector(toggleLaunchAtLogin)
         row.addArrangedSubview(launchAtLoginCheckbox)
@@ -126,16 +147,32 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         return row
     }
 
+    private func configureStableControlConstraints() {
+        guard !didConfigureStableControlConstraints else { return }
+        shortcutButton.widthAnchor.constraint(equalToConstant: 210).isActive = true
+        directoryField.widthAnchor.constraint(equalToConstant: 270).isActive = true
+        languagePopup.widthAnchor.constraint(equalToConstant: 210).isActive = true
+        didConfigureStableControlConstraints = true
+    }
+
     private func reload() {
         let settings = AppSettings.shared
         shortcutButton.shortcut = settings.regionShortcut
         directoryField.stringValue = settings.saveDirectory.path
+        if let item = languagePopup.itemArray.first(where: { $0.representedObject as? String == settings.languageSetting.rawValue }) {
+            languagePopup.select(item)
+        }
         launchAtLoginCheckbox.state = LaunchAtLoginService.isEnabled ? .on : .off
+    }
+
+    func applyLanguage() {
+        buildContent()
+        reload()
     }
 
     @objc private func chooseDirectory() {
         let panel = NSOpenPanel()
-        panel.title = "选择自动保存目录"
+        panel.title = L10n.text(.settingsChooseSaveDirectoryTitle)
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
@@ -148,6 +185,17 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             self?.directoryField.stringValue = url.path
             self?.onSettingsChanged?()
         }
+    }
+
+    @objc private func changeLanguage() {
+        guard
+            let rawValue = languagePopup.selectedItem?.representedObject as? String,
+            let setting = AppLanguageSetting(rawValue: rawValue)
+        else { return }
+
+        AppSettings.shared.languageSetting = setting
+        applyLanguage()
+        onSettingsChanged?()
     }
 
     @objc private func toggleLaunchAtLogin() {
@@ -164,8 +212,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
     private func presentLaunchAtLoginError(_ error: Error) {
         let alert = NSAlert(error: error)
-        alert.messageText = "开机启动设置失败"
-        alert.informativeText = "请确认 SnapMark 是从 .app 包运行，而不是从命令行临时进程运行。"
+        alert.messageText = L10n.text(.settingsLaunchAtLoginErrorTitle)
+        alert.informativeText = L10n.text(.settingsLaunchAtLoginErrorMessage)
         if let window {
             alert.beginSheetModal(for: window)
         } else {
@@ -199,7 +247,7 @@ final class ShortcutRecorderButton: NSButton {
             shortcut = activeShortcut
         }
         isRecording = true
-        title = "请按新的快捷键"
+        title = L10n.text(.shortcutRecordingPrompt)
         window?.makeFirstResponder(self)
     }
 
@@ -216,13 +264,14 @@ final class ShortcutRecorderButton: NSButton {
     }
 
     override func keyDown(with event: NSEvent) {
-        guard isRecording else {
-            super.keyDown(with: event)
+        if ExitShortcut.matches(event) {
+            stopRecording()
+            window?.close()
             return
         }
 
-        if event.keyCode == 53 {
-            stopRecording()
+        guard isRecording else {
+            super.keyDown(with: event)
             return
         }
 

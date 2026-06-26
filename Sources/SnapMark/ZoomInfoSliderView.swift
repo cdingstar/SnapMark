@@ -62,17 +62,24 @@ final class ZoomInfoSliderView: NSView {
 
         zoomLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
         zoomLabel.textColor = .labelColor
-        zoomLabel.alignment = .center
+        zoomLabel.alignment = .left
+        zoomLabel.lineBreakMode = .byTruncatingTail
+        zoomLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         imageSizeLabel.font = .monospacedDigitSystemFont(ofSize: 10, weight: .regular)
         imageSizeLabel.textColor = .secondaryLabelColor
-        imageSizeLabel.alignment = .center
+        imageSizeLabel.alignment = .right
+        imageSizeLabel.lineBreakMode = .byTruncatingMiddle
+        imageSizeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
 
-        let labelStack = NSStackView(views: [zoomLabel, imageSizeLabel])
-        labelStack.orientation = .vertical
-        labelStack.alignment = .centerX
-        labelStack.spacing = 0
-        labelStack.translatesAutoresizingMaskIntoConstraints = false
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        let infoRow = NSStackView(views: [zoomLabel, spacer, imageSizeLabel])
+        infoRow.orientation = .horizontal
+        infoRow.alignment = .centerY
+        infoRow.spacing = 6
+        infoRow.translatesAutoresizingMaskIntoConstraints = false
 
         slider.target = self
         slider.action = #selector(sliderChanged)
@@ -80,17 +87,17 @@ final class ZoomInfoSliderView: NSView {
         slider.alphaValue = 0.04
         slider.translatesAutoresizingMaskIntoConstraints = false
 
-        addSubview(labelStack)
+        addSubview(infoRow)
         addSubview(slider)
 
         NSLayoutConstraint.activate([
-            labelStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            labelStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            labelStack.centerYAnchor.constraint(equalTo: centerYAnchor),
+            infoRow.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            infoRow.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            infoRow.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -1),
 
             slider.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 5),
             slider.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -5),
-            slider.centerYAnchor.constraint(equalTo: centerYAnchor)
+            slider.centerYAnchor.constraint(equalTo: centerYAnchor, constant: 7)
         ])
     }
 

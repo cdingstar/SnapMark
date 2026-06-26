@@ -52,11 +52,24 @@ enum ImageRenderer {
                 drawMagnifier(annotation, over: baseImage, canvasRect: canvasRect, isPreview: isPreview)
             case .pen:
                 drawPen(annotation, isPreview: isPreview)
+            case .hand:
+                drawImagePatch(annotation, isPreview: isPreview)
             }
         }
     }
 
     private static func drawArrow(_ annotation: Annotation, isPreview: Bool) {
+        switch annotation.arrowMode {
+        case .solid:
+            drawSolidArrow(annotation, isPreview: isPreview)
+        case .notched:
+            drawNotchedArrow(annotation, isPreview: isPreview)
+        case .line:
+            drawArrowLine(annotation, isPreview: isPreview)
+        }
+    }
+
+    private static func drawArrowLine(_ annotation: Annotation, isPreview: Bool) {
         let path = NSBezierPath()
         path.move(to: annotation.start)
         path.line(to: annotation.end)
@@ -64,37 +77,132 @@ enum ImageRenderer {
         path.lineCapStyle = .round
         path.lineJoinStyle = .round
 
-        annotation.color.withAlphaComponent(isPreview ? 0.55 : 1).setStroke()
+        annotationColor(annotation, alphaMultiplier: isPreview ? 0.55 : 1).setStroke()
         path.stroke()
+    }
 
-        let angle = atan2(annotation.end.y - annotation.start.y, annotation.end.x - annotation.start.x)
-        let headLength: CGFloat = 18
-        let spread: CGFloat = .pi / 7
+    private static func drawSolidArrow(_ annotation: Annotation, isPreview: Bool) {
+        guard let metrics = arrowMetrics(for: annotation) else { return }
 
-        let point1 = CGPoint(
-            x: annotation.end.x - headLength * cos(angle - spread),
-            y: annotation.end.y - headLength * sin(angle - spread)
+        let alpha: CGFloat = isPreview ? 0.55 : 1
+        let lineWidth = max(1, annotation.lineWidth)
+        let headLength = min(max(18, lineWidth * 4), max(8, metrics.length * 0.45))
+        let headHalfWidth = max(7, lineWidth * 1.8)
+        let shaftEnd = CGPoint(
+            x: annotation.end.x - metrics.unit.x * headLength * 0.62,
+            y: annotation.end.y - metrics.unit.y * headLength * 0.62
         )
-        let point2 = CGPoint(
-            x: annotation.end.x - headLength * cos(angle + spread),
-            y: annotation.end.y - headLength * sin(angle + spread)
+
+        let shaft = NSBezierPath()
+        shaft.move(to: annotation.start)
+        shaft.line(to: shaftEnd)
+        shaft.lineWidth = lineWidth
+        shaft.lineCapStyle = .round
+        shaft.lineJoinStyle = .round
+        annotationColor(annotation, alphaMultiplier: alpha).setStroke()
+        shaft.stroke()
+
+        let baseCenter = CGPoint(
+            x: annotation.end.x - metrics.unit.x * headLength,
+            y: annotation.end.y - metrics.unit.y * headLength
         )
 
         let head = NSBezierPath()
         head.move(to: annotation.end)
-        head.line(to: point1)
-        head.move(to: annotation.end)
-        head.line(to: point2)
-        head.lineWidth = annotation.lineWidth
-        head.lineCapStyle = .round
-        head.stroke()
+        head.line(to: CGPoint(
+            x: baseCenter.x + metrics.perpendicular.x * headHalfWidth,
+            y: baseCenter.y + metrics.perpendicular.y * headHalfWidth
+        ))
+        head.line(to: CGPoint(
+            x: baseCenter.x - metrics.perpendicular.x * headHalfWidth,
+            y: baseCenter.y - metrics.perpendicular.y * headHalfWidth
+        ))
+        head.close()
+        annotationColor(annotation, alphaMultiplier: alpha).setFill()
+        head.fill()
+    }
+
+    private static func drawNotchedArrow(_ annotation: Annotation, isPreview: Bool) {
+        guard let metrics = arrowMetrics(for: annotation) else { return }
+
+        let alpha: CGFloat = isPreview ? 0.55 : 1
+        let lineWidth = max(1, annotation.lineWidth)
+        guard metrics.length > 14 else {
+            drawArrowLine(annotation, isPreview: isPreview)
+            return
+        }
+
+        let headLength = min(max(24, lineWidth * 5), metrics.length * 0.68)
+        let headHalfWidth = max(9, lineWidth * 2.3)
+        let tailHalfWidth = max(3, lineWidth * 0.85)
+        let notchDepth = min(max(6, lineWidth * 1.5), headLength * 0.42)
+        let headBase = CGPoint(
+            x: annotation.end.x - metrics.unit.x * headLength,
+            y: annotation.end.y - metrics.unit.y * headLength
+        )
+        let notch = CGPoint(
+            x: annotation.start.x + metrics.unit.x * notchDepth,
+            y: annotation.start.y + metrics.unit.y * notchDepth
+        )
+
+        let path = NSBezierPath()
+        path.move(to: CGPoint(
+            x: annotation.start.x + metrics.perpendicular.x * tailHalfWidth,
+            y: annotation.start.y + metrics.perpendicular.y * tailHalfWidth
+        ))
+        path.line(to: CGPoint(
+            x: headBase.x + metrics.perpendicular.x * headHalfWidth,
+            y: headBase.y + metrics.perpendicular.y * headHalfWidth
+        ))
+        path.line(to: annotation.end)
+        path.line(to: CGPoint(
+            x: headBase.x - metrics.perpendicular.x * headHalfWidth,
+            y: headBase.y - metrics.perpendicular.y * headHalfWidth
+        ))
+        path.line(to: CGPoint(
+            x: annotation.start.x - metrics.perpendicular.x * tailHalfWidth,
+            y: annotation.start.y - metrics.perpendicular.y * tailHalfWidth
+        ))
+        path.line(to: notch)
+        path.close()
+
+        annotationColor(annotation, alphaMultiplier: alpha).setFill()
+        path.fill()
+    }
+
+    private static func arrowMetrics(for annotation: Annotation) -> (length: CGFloat, unit: CGPoint, perpendicular: CGPoint)? {
+        let dx = annotation.end.x - annotation.start.x
+        let dy = annotation.end.y - annotation.start.y
+        let length = hypot(dx, dy)
+        guard length > 0 else { return nil }
+
+        let unit = CGPoint(x: dx / length, y: dy / length)
+        return (length, unit, CGPoint(x: -unit.y, y: unit.x))
     }
 
     private static func drawRectangle(_ annotation: Annotation, isPreview: Bool) {
-        let path = NSBezierPath(rect: annotation.rect)
+        let path: NSBezierPath
+        switch annotation.shapeMode {
+        case .rectangle:
+            path = NSBezierPath(rect: annotation.rect)
+        case .circle:
+            path = NSBezierPath(ovalIn: circleRect(for: annotation.rect))
+        case .ellipse:
+            path = NSBezierPath(ovalIn: annotation.rect)
+        }
         path.lineWidth = annotation.lineWidth
-        annotation.color.withAlphaComponent(isPreview ? 0.55 : 1).setStroke()
+        annotationColor(annotation, alphaMultiplier: isPreview ? 0.55 : 1).setStroke()
         path.stroke()
+    }
+
+    private static func circleRect(for rect: CGRect) -> CGRect {
+        let side = min(rect.width, rect.height)
+        return CGRect(
+            x: rect.midX - side / 2,
+            y: rect.midY - side / 2,
+            width: side,
+            height: side
+        )
     }
 
     private static func drawText(_ annotation: Annotation, isPreview: Bool) {
@@ -102,7 +210,7 @@ enum ImageRenderer {
         paragraph.lineBreakMode = .byWordWrapping
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: annotation.fontSize, weight: .semibold),
-            .foregroundColor: annotation.color.withAlphaComponent(isPreview ? 0.55 : 1),
+            .foregroundColor: annotationColor(annotation, alphaMultiplier: isPreview ? 0.55 : 1),
             .backgroundColor: NSColor.white.withAlphaComponent(isPreview ? 0.45 : 0.72),
             .paragraphStyle: paragraph
         ]
@@ -142,10 +250,12 @@ enum ImageRenderer {
             fraction: isPreview ? 0.7 : 1
         )
 
-        annotation.color.withAlphaComponent(isPreview ? 0.45 : 0.22).setStroke()
-        let border = NSBezierPath(rect: rect)
-        border.lineWidth = 2
-        border.stroke()
+        if annotation.mosaicMode == .bordered {
+            annotationColor(annotation, alphaMultiplier: isPreview ? 0.45 : 0.22).setStroke()
+            let border = NSBezierPath(rect: rect)
+            border.lineWidth = 2
+            border.stroke()
+        }
 
         NSGraphicsContext.restoreGraphicsState()
     }
@@ -173,7 +283,7 @@ enum ImageRenderer {
 
         let border = NSBezierPath(ovalIn: lensRect)
         border.lineWidth = max(3, annotation.lineWidth)
-        annotation.color.withAlphaComponent(isPreview ? 0.55 : 1).setStroke()
+        annotationColor(annotation, alphaMultiplier: isPreview ? 0.55 : 1).setStroke()
         border.stroke()
 
         NSColor.white.withAlphaComponent(isPreview ? 0.35 : 0.75).setStroke()
@@ -188,8 +298,8 @@ enum ImageRenderer {
 
         let lineWidth = max(1, annotation.lineWidth)
         let isSinglePoint = points.count == 1 || (points.last.map { $0 == firstPoint } ?? false)
-        annotation.color.withAlphaComponent(isPreview ? 0.55 : 1).setStroke()
-        annotation.color.withAlphaComponent(isPreview ? 0.55 : 1).setFill()
+        annotationColor(annotation, alphaMultiplier: isPreview ? 0.55 : 1).setStroke()
+        annotationColor(annotation, alphaMultiplier: isPreview ? 0.55 : 1).setFill()
 
         if isSinglePoint {
             let dotRect = CGRect(
@@ -213,5 +323,31 @@ enum ImageRenderer {
         }
 
         path.stroke()
+    }
+
+    private static func drawImagePatch(_ annotation: Annotation, isPreview: Bool) {
+        guard let imagePatch = annotation.imagePatch else { return }
+
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current?.imageInterpolation = annotation.rect.width >= imagePatch.size.width ? .none : .high
+        imagePatch.draw(
+            in: annotation.rect,
+            from: CGRect(origin: .zero, size: imagePatch.size),
+            operation: .copy,
+            fraction: isPreview ? 0.72 : 1
+        )
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
+    private static func annotationColor(_ annotation: Annotation, alphaMultiplier: CGFloat) -> NSColor {
+        guard let color = annotation.color.usingColorSpace(.deviceRGB) else {
+            return annotation.color.withAlphaComponent(clamped(annotation.color.alphaComponent * alphaMultiplier))
+        }
+
+        return color.withAlphaComponent(clamped(color.alphaComponent * alphaMultiplier))
+    }
+
+    private static func clamped(_ value: CGFloat) -> CGFloat {
+        min(1, max(0, value))
     }
 }

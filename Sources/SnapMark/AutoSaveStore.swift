@@ -10,8 +10,22 @@ enum AutoSaveStore {
     static func newCaptureURL() -> URL {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyyMMdd-HHmmss"
-        let name = "SnapMark-\(formatter.string(from: Date())).png"
-        return saveDirectory.appendingPathComponent(name)
+        let baseName = "SnapMark-\(formatter.string(from: Date()))"
+        return uniquePNGURL(baseName: baseName)
+    }
+
+    private static func uniquePNGURL(baseName: String) -> URL {
+        var candidate = saveDirectory.appendingPathComponent(baseName).appendingPathExtension("png")
+        var suffix = 2
+
+        while FileManager.default.fileExists(atPath: candidate.path) {
+            candidate = saveDirectory
+                .appendingPathComponent("\(baseName)-\(suffix)")
+                .appendingPathExtension("png")
+            suffix += 1
+        }
+
+        return candidate
     }
 
     static func save(_ image: NSImage, to url: URL) throws {
@@ -21,7 +35,7 @@ enum AutoSaveStore {
         try data.write(to: url, options: .atomic)
     }
 
-    static func writeTemporaryDragImage(_ image: NSImage) -> URL? {
+    static func writeTemporaryImage(_ image: NSImage) -> URL? {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("SnapMark-\(UUID().uuidString)")
             .appendingPathExtension("png")
@@ -33,6 +47,7 @@ enum AutoSaveStore {
             return nil
         }
     }
+
 }
 
 extension NSImage {

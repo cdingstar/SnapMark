@@ -27,11 +27,11 @@ Scripts/test.sh --skip-build --app dist/SnapMark.app
 | ID | 类型 | 模块 | 测试点 |
 | --- | --- | --- | --- |
 | SMK-P0-SHOT-001 | 自动 | 区域截图 | 菜单/快捷键入口进入 `ScreenSelectionResult.region`，拖拽后按区域截图。 |
-| SMK-P0-SHOT-002 | 自动 | 全屏截图 | `captureFullScreen()` 聚合所有屏幕 frame 并调用截图服务。 |
+| SMK-P0-SHOT-002 | 自动 | 全屏截图 | `captureFullScreen()` 聚合所有屏幕 frame 并调用截图服务；区域截图激活后若 mouseover 未命中任何窗口，单击空白处也进入全屏截图。 |
 | SMK-P0-SHOT-003 | 自动 | 窗口截图 | mouse move 命中 app window，单击走 window id 截图。 |
-| SMK-P0-SHOT-004 | 自动 | 状态 reset | 激活截图、编辑窗口、设置窗口状态下 `Esc` 可 reset。 |
+| SMK-P0-SHOT-004 | 自动 | 状态退出 | 激活截图、编辑窗口、设置窗口或弹窗状态下 `Esc` / `Command+Q` 可退出当前窗口或模式。 |
 | SMK-P0-SHOT-005 | 手动 | 权限 | 首次截图无权限时提示打开系统设置；授权后截图不重复弹窗。 |
-| SMK-P0-SHOT-006 | 自动 | 截图遮罩 | 截图遮罩使用可成为 key/main 的 window，并在激活时主动接收 `Esc`。 |
+| SMK-P0-SHOT-006 | 自动 | 截图遮罩 | 截图遮罩使用可成为 key/main 的 window，并在激活时主动接收 `Esc` / `Command+Q`。 |
 | SMK-P0-SHOT-007 | 自动 | 坐标映射 | 区域选择的 AppKit point 坐标按屏幕和 backing scale 转换为 CoreGraphics 截图坐标，避免截图内容偏移或尺寸错误。 |
 | SMK-P0-SHOT-008 | 自动 | 截图内容 | 实际截图输出尺寸必须与选择区域换算后的像素尺寸一致，避免选区和结果尺寸不一致。 |
 | SMK-P0-SHOT-009 | 自动 | 选区提示 | 选择框尺寸提示显示实际像素 `px`，不是 AppKit point。 |
@@ -50,17 +50,17 @@ Scripts/test.sh --skip-build --app dist/SnapMark.app
 
 | ID | 类型 | 模块 | 测试点 |
 | --- | --- | --- | --- |
-| SMK-P0-ANN-001 | 自动 | 标注工具 | 箭头、矩形、文字、马赛克、放大镜、Pen工具和 renderer 都存在。 |
+| SMK-P0-ANN-001 | 自动 | 标注工具 | 箭头、形状、文字、马赛克、放大镜、Pen、手形工具和 renderer 都存在；形状支持矩形/圆形/椭圆循环，箭头支持实心/Notched/直线循环，马赛克支持无外框/有外框循环，手形支持虚框区域搬运和纯拖拉画布两种模式，文字工具使用自绘 `T` 图标。 |
 | SMK-P0-ANN-002 | 手动 | 编辑窗口 | 截图后可添加每类标注，撤销、复制、保存可用。 |
-| SMK-P0-ANN-003 | 自动 | Pen | Pen 以自由路径写字/画线，并支持 `S/M/L` 三种笔触大小；默认 `M`，大小合并到 Pen 工具按钮内，不再占用独立 toolbar 控件。 |
+| SMK-P0-ANN-003 | 自动 | Pen | Pen 以自由路径写字/画线，并支持 `S/M/L` 三种笔触大小；默认 `M`，大小合并到 Pen 工具按钮内，用不同粗细横线显示当前笔触。 |
 | SMK-P0-ANN-004 | 自动 | Pen | Pen 拖拽路径包含 mouse down、drag、mouse up 终点；预览和导出都按轨迹使用当前颜色绘制，不再沿用旧白底填充逻辑。 |
 | SMK-P0-ANN-005 | 自动 | 文字弹窗 | 文字标注使用自定义弹窗，支持多行输入、颜色、字号和实时预览，替代旧的简单 alert。 |
-| SMK-P0-ANN-006 | 自动 | 标注变换 | 箭头、矩形、文字、马赛克、放大镜可点击选中、拖动、拖拽手柄缩放；toolbar 色板只影响新建标注，非文字标注创建后不改色，文字可双击编辑内容和颜色。 |
-| SMK-P0-EDITOR-001 | 自动 | 编辑窗口 | 截图后窗口使用 Photoshop 风格棋盘底，toolbar 左侧信息块上方显示当前缩放比例、下方显示 `width x height px`，缩放 slider 并入左侧信息块底色且默认近透明，截图内容居中；toolbar 紧凑、操作组右对齐且右侧按钮保持单行整体，默认/最小窗口宽度可完整展开工具条，支持 current、100%、Best Fit、Fit In、最高 800% 缩放和拖拽/滚动查看。 |
-| SMK-P0-EDITOR-002 | 自动 | 导出一致性 | 编辑器缩放只影响显示，不影响保存/复制/拖拽导出的原始像素尺寸。 |
+| SMK-P0-ANN-006 | 自动 | 标注变换 | 箭头、矩形、文字、马赛克、放大镜、手形贴片可点击选中、拖动、拖拽手柄缩放；拖拽越过图片边界时继续响应方向并 clamp 到图片范围；箭头水平拖拽不被最小尺寸逻辑改向；选中箭头、矩形、文字或手形贴片后可按 Delete 删除；虚框手模式可框选任意图片区域生成贴片，拖动贴片覆盖到其他位置，Option 拖动已有贴片会复制一份再移动；点击空白、画布失焦、平移或切换其他编辑工具时会自动 apply 当前激活标注；多个标注重叠命中时优先选择更小或被覆盖更多的目标；toolbar 色板只影响新建标注，非文字标注创建后不改色，右侧颜色箭头打开单页轻量 popover，常用色选中后自动关闭，文字可双击编辑内容和颜色。 |
+| SMK-P0-EDITOR-001 | 自动 | 编辑窗口 | 截图后窗口使用 Photoshop 风格棋盘底，toolbar 左侧信息块上方显示当前缩放比例和模式（如 `100% 1:1`、`63% Best Fit`、`72% Fit In`），下方显示 `width x height px`；缩放 slider 并入左侧信息块底色且默认近透明；toolbar 紧凑、操作组右对齐且右侧按钮保持单行整体，默认/最小窗口宽度可完整展开工具条，缩放按钮按 1:1、Best Fit、Fit In 计算并排除任何重复比例，支持最高 800% 缩放和拖拽/滚动查看。 |
+| SMK-P0-EDITOR-002 | 自动 | 导出一致性 | 编辑器缩放只影响显示，不影响保存/复制/共享导出的原始像素尺寸。 |
 | SMK-P0-EDITOR-003 | 自动 | 标注坐标 | 编辑器在任意缩放比例下，将鼠标位置反算到图片像素坐标，标注保存位置不漂移。 |
-| SMK-P0-EDITOR-004 | 自动 | 缩放范围 | 编辑器 Best Fit、Fit In 和 slider 覆盖 `1:8` 到 `8:1`，并在高缩放下保持可滚动查看。 |
-| SMK-P0-EDITOR-005 | 自动 | toolbar | 左侧信息块按 `zoom` 在上、`width x height px` 在下显示，并承载透明缩放 slider 和相邻的适应按钮；右侧工具、窄色板、操作按钮保持单行整体，Pen 大小显示在 Pen 工具段内。 |
+| SMK-P0-EDITOR-004 | 自动 | 缩放范围 | 编辑器 Best Fit、Fit In 和 slider 覆盖 `1:32` 到 `8:1`；Best Fit 会给截图边框预留安全余量，Fit In 会最大化显示完整内容并让宽或高至少一边贴近窗口边界，高缩放下保持可滚动查看。 |
+| SMK-P0-EDITOR-005 | 自动 | toolbar | 左侧信息块按 `zoom` 在上、`width x height px` 在下显示，并承载透明缩放 slider 和相邻的适应按钮；右侧工具使用图标、窄色板、操作按钮保持单行整体。 |
 | SMK-P0-EDITOR-006 | 自动 | 文字移动 | 文字标注默认尺寸按内容长度和字号估算；文字工具命中已有文字时可选择并拖动，移动范围限制在图片内。 |
 
 ## P0 保存与导出
@@ -68,8 +68,9 @@ Scripts/test.sh --skip-build --app dist/SnapMark.app
 | ID | 类型 | 模块 | 测试点 |
 | --- | --- | --- | --- |
 | SMK-P0-SAVE-001 | 自动 | 自动保存 | 保存目录来自设置，默认 Downloads，文件名按时间生成 PNG。 |
-| SMK-P0-DRAG-001 | 自动 | 拖拽复制 | 拖拽按钮生成临时 PNG，拖拽操作为 copy。 |
-| SMK-P0-DRAG-002 | 手动 | 拖拽复制 | 从编辑窗口拖拽到 Finder/聊天窗口可复制图片。 |
+| SMK-P0-SAVE-002 | 自动 | 退出保存 | 编辑窗口退出时若有标注改动，会为编辑结果另存新的 PNG 文件名；关闭后释放截图遮罩、编辑画布、toolbar 和设置窗口等不必要引用。 |
+| SMK-P0-SHARE-001 | 自动 | 共享 | 共享按钮生成临时 PNG，并通过系统 `NSSharingServicePicker` 弹出 AirDrop、邮件等分享入口。 |
+| SMK-P0-SHARE-002 | 手动 | 共享 | 从编辑窗口点击共享按钮，可通过 AirDrop 或邮件发送当前标注后的图片。 |
 
 ## P0 快捷键
 
@@ -84,9 +85,10 @@ Scripts/test.sh --skip-build --app dist/SnapMark.app
 
 | ID | 类型 | 模块 | 测试点 |
 | --- | --- | --- | --- |
-| SMK-P0-SET-001 | 自动 | 设置窗口 | 设置窗口包含快捷键、存储目录、开机启动。 |
+| SMK-P0-SET-001 | 自动 | 设置窗口 | 设置窗口包含快捷键、存储目录、语言和开机启动。 |
 | SMK-P0-SET-002 | 手动 | 设置窗口 | 修改保存目录后，新截图保存到新目录。 |
 | SMK-P0-SET-003 | 手动 | 开机启动 | 从 `.app` 包运行时可开启/关闭登录项。 |
+| SMK-P0-SET-004 | 自动 | 语言设置 | 默认跟随系统语言，至少支持简体中文和 English；菜单、设置、编辑器 toolbar、截图遮罩、文字弹窗和颜色选择器等可见文案统一走本地化入口。 |
 
 ## P0 打包与资源
 
@@ -105,7 +107,7 @@ Scripts/test.sh --skip-build --app dist/SnapMark.app
 
 | ID | 类型 | 模块 | 测试点 |
 | --- | --- | --- | --- |
-| SMK-P0-ARCH-001 | 自动 | 模块拆分 | 截图选择、放大镜、窗口探测按模块拆分且文件大小受控。 |
+| SMK-P0-ARCH-001 | 自动 | 模块拆分 | 截图选择、放大镜、窗口探测和 Editor 相关代码按模块拆分且文件大小受控；任意 `Editor*.swift` 不超过 500 行。 |
 | SMK-P0-PERF-001 | 手动 | 资源 | 进入截图前后观察 Activity Monitor，截图 overlay 关闭后无长期 CPU 占用。 |
 
 ## QA 文档
@@ -113,7 +115,7 @@ Scripts/test.sh --skip-build --app dist/SnapMark.app
 | ID | 类型 | 模块 | 测试点 |
 | --- | --- | --- | --- |
 | SMK-QA-001 | 自动 | 测试计划 | 测试计划文档覆盖 P0 自动化功能点。 |
-| SMK-QA-002 | 自动 | UI 总览 | `Docs/UIOverview.MD` 包含状态栏菜单、截图选择、编辑窗口、设置窗口、文字弹窗说明，并保存总览截图 `Docs/Images/snapmark-ui-overview.png`。 |
+| SMK-QA-002 | 自动 | UI 总览 | `Docs/UIOverview.MD` 和 `Docs/FinalRequirements.MD` 覆盖状态栏菜单、截图选择、编辑窗口、设置窗口、文字弹窗、关于窗口和共享说明，并保存总览截图 `Docs/Images/snapmark-ui-overview.png` 及 `Docs/Images/final-ui/` 标注图。 |
 
 ## P1 规划
 

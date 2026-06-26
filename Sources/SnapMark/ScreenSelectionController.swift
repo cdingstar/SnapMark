@@ -4,6 +4,7 @@ import CoreGraphics
 enum ScreenSelectionResult {
     case region(ScreenCaptureRegion)
     case window(WindowTarget)
+    case fullScreen
 }
 
 final class ScreenSelectionController {
@@ -15,7 +16,7 @@ final class ScreenSelectionController {
         self.completion = completion
         isFinishing = false
 
-        let windowTargets = WindowInspector.visibleWindowTargets(excludingOwnerNames: ["SnapMark"])
+        let windowTargets = WindowInspector.visibleWindowTargets()
 
         windows = NSScreen.screens.map { screen in
             let window = makeOverlayWindow(for: screen)
@@ -55,6 +56,8 @@ final class ScreenSelectionController {
         window.ignoresMouseEvents = false
         window.acceptsMouseMovedEvents = true
         window.hasShadow = false
+        window.animationBehavior = .none
+        window.isReleasedWhenClosed = false
         return window
     }
 
@@ -83,6 +86,9 @@ final class ScreenSelectionController {
         view.onWindowComplete = { [weak self] target in
             self?.finish(.window(target))
         }
+        view.onFullScreenComplete = { [weak self] in
+            self?.finish(.fullScreen)
+        }
         view.onCancel = { [weak self] in
             self?.finish(nil)
         }
@@ -92,10 +98,27 @@ final class ScreenSelectionController {
         guard !isFinishing else { return }
         isFinishing = true
 
-        windows.forEach { $0.orderOut(nil) }
+        let closingWindows = windows
+        let completion = completion
         windows.removeAll()
+        self.completion = nil
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0
+            context.allowsImplicitAnimation = false
+            closingWindows.forEach { window in
+                window.animationBehavior = .none
+                window.orderOut(nil)
+            }
+        }
 
         completion?(result)
-        completion = nil
+
+        DispatchQueue.main.async {
+            closingWindows.forEach { window in
+                window.contentView = nil
+                window.close()
+            }
+        }
     }
 }
