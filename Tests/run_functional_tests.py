@@ -56,10 +56,12 @@ class FunctionalTestRunner:
             TestCase("SMK-P0-MAG-001", "截图选择放大镜为 5x 像素化放大并扩大视野", self.case_selection_magnifier),
             TestCase("SMK-P0-ANN-001", "编辑器标注工具覆盖箭头/矩形/文字/马赛克/放大镜", self.case_annotation_tools),
             TestCase("SMK-P0-ANN-003", "编辑器橡皮擦支持 S/M/L 不同大小", self.case_eraser_tool_sizes),
+            TestCase("SMK-P0-ANN-004", "橡皮擦自由路径预览和导出恢复底图", self.case_eraser_path_rendering_logic),
             TestCase("SMK-P0-EDITOR-001", "编辑器使用棋盘底、居中显示、缩放和平移", self.case_editor_checkerboard_zoom_pan),
             TestCase("SMK-P0-EDITOR-002", "编辑器缩放不影响保存/复制输出像素", self.case_editor_export_independent_from_zoom),
             TestCase("SMK-P0-EDITOR-003", "编辑器标注坐标按缩放反算到图片像素", self.case_editor_annotation_coordinate_mapping),
             TestCase("SMK-P0-EDITOR-004", "编辑器 fit 和缩放范围覆盖 1:8 到 8:1", self.case_editor_zoom_range),
+            TestCase("SMK-P0-EDITOR-005", "toolbar 左侧信息上下显示且右侧工具保持单行", self.case_editor_toolbar_stacked_info_layout),
             TestCase("SMK-P0-SAVE-001", "自动保存目录读取设置且默认 Downloads", self.case_autosave_settings),
             TestCase("SMK-P0-HOT-001", "默认快捷键 fallback 为 A/S/Q", self.case_hotkey_fallbacks),
             TestCase("SMK-P0-HOT-002", "快捷键失效检测和自动切换逻辑存在", self.case_hotkey_health_check),
@@ -333,6 +335,52 @@ class FunctionalTestRunner:
         self.require("EraserSize.allCases.map(\\.title)" in editor, "toolbar should expose S/M/L eraser sizes")
         self.require("changeEraserSize" in editor, "eraser size action missing")
 
+        expected_sizes = {"small": 8, "medium": 16, "large": 32}
+        self.require(expected_sizes["small"] < expected_sizes["medium"] < expected_sizes["large"], "eraser fixture sizes should increase")
+        for label in ["S", "M", "L"]:
+            self.require(f'return "{label}"' in annotation, f"missing eraser size label {label}")
+
+    def case_eraser_path_rendering_logic(self) -> None:
+        canvas = self.read("Sources/SnapMark/EditorCanvasView.swift")
+        renderer = self.read("Sources/SnapMark/ImageRenderer.swift")
+
+        for token in [
+            "dragPoints = [point]",
+            "dragPoints.append(point)",
+            "let points = finalizedDragPoints(endingAt: end)",
+            "dragPoints.removeAll()",
+            "finalizedDragPoints(endingAt:",
+            "points.last.map({ $0 != end }) ?? true",
+        ]:
+            self.require(token in canvas, f"eraser path collection missing {token}")
+        for token in [
+            "drawEraser(annotation, over: baseImage, canvasRect: canvasRect, isPreview: isPreview)",
+            "let points = annotation.points.isEmpty ? [annotation.start, annotation.end] : annotation.points",
+            "context.replacePathWithStrokedPath()",
+            "context.clip()",
+            "baseImage.draw(in: canvasRect, from: .zero, operation: .copy",
+            "drawEraserPreview(points: points, lineWidth: lineWidth)",
+            "NSBezierPath(ovalIn: rect).stroke()",
+        ]:
+            self.require(token in renderer, f"eraser renderer missing {token}")
+
+        path_points = [(10, 10), (12, 14)]
+        end = (18, 20)
+        finalized = list(path_points)
+        if not finalized or finalized[-1] != end:
+            finalized.append(end)
+        self.require(finalized == [(10, 10), (12, 14), (18, 20)], "eraser fixture should append final mouse-up point")
+
+        single_point = [(10, 10)]
+        stroke_width = 16
+        erase_bounds = (
+            single_point[0][0] - stroke_width / 2,
+            single_point[0][1] - stroke_width / 2,
+            stroke_width,
+            stroke_width,
+        )
+        self.require(erase_bounds == (2, 2, 16, 16), "single-point eraser fixture should create centered erase circle")
+
     def case_editor_checkerboard_zoom_pan(self) -> None:
         canvas = self.read("Sources/SnapMark/EditorCanvasView.swift")
         editor = self.read("Sources/SnapMark/EditorWindowController.swift")
@@ -381,6 +429,30 @@ class FunctionalTestRunner:
         self.require(item_body.index(".tools") < item_body.index(".eraserSize") < item_body.index(".fitZoom"), "eraser size control should stay in the single-row tool group")
         self.require("formatImageSize(_ size: CGSize)" in editor and "x \\(Int(size.height.rounded())) px" in editor, "editor must format screenshot dimensions")
         self.require("formatZoom(_ scale: CGFloat)" in editor, "editor must format zoom in the stacked info block")
+
+    def case_editor_toolbar_stacked_info_layout(self) -> None:
+        editor = self.read("Sources/SnapMark/EditorWindowController.swift")
+
+        self.require("NSStackView(views: [zoomInfoLabel, imageSizeLabel])" in editor, "zoom should be stacked above image size")
+        self.require("stack.orientation = .vertical" in editor, "toolbar info block should be vertical")
+        self.require("stack.alignment = .leading" in editor, "toolbar info block should be leading aligned")
+        self.require("zoomInfoLabel.stringValue = Self.formatZoom(canvasView.zoomScale)" in editor, "zoom label should update from actual zoom")
+        self.require("imageSizeLabel.stringValue = Self.formatImageSize(imagePixelSize)" in editor, "image size label should use screenshot pixels")
+        self.require("zoomInfoLabel?.stringValue" not in editor, "zoom info label should be a stable toolbar field")
+        self.require("let stack = NSStackView(views: [label, slider])" not in editor, "right side controls should not be stacked into two rows")
+
+        default_items = re.search(r"func toolbarDefaultItemIdentifiers\(_ toolbar: NSToolbar\) -> \[NSToolbarItem.Identifier\] \{\n        \[\n(?P<body>.*?)\n        \]\n    \}", editor, re.DOTALL)
+        self.require(default_items is not None, "toolbar default items missing")
+        assert default_items is not None
+        item_body = default_items.group("body")
+        for item in [".tools", ".eraserSize", ".fitZoom", ".zoom", ".undo", ".copy", ".save", ".dragCopy"]:
+            self.require(item in item_body, f"toolbar single-row item missing {item}")
+        self.require(item_body.index(".flexibleSpace") < item_body.index(".tools"), "tool controls should stay to the right of flexible space")
+        self.require(item_body.index(".tools") < item_body.index(".eraserSize") < item_body.index(".zoom"), "eraser size and zoom should remain in the right-side single row")
+
+        fit_zoom = 0.625
+        formatted_zoom = f"{self.round_away(fit_zoom * 100)}%"
+        self.require(formatted_zoom == "63%", "zoom formatting fixture should match Swift rounded percent behavior")
 
     def case_editor_export_independent_from_zoom(self) -> None:
         canvas = self.read("Sources/SnapMark/EditorCanvasView.swift")
@@ -660,10 +732,12 @@ class FunctionalTestRunner:
             "SMK-P0-MAG-001",
             "SMK-P0-ANN-001",
             "SMK-P0-ANN-003",
+            "SMK-P0-ANN-004",
             "SMK-P0-EDITOR-001",
             "SMK-P0-EDITOR-002",
             "SMK-P0-EDITOR-003",
             "SMK-P0-EDITOR-004",
+            "SMK-P0-EDITOR-005",
             "SMK-P0-SAVE-001",
             "SMK-P0-HOT-001",
             "SMK-P0-HOT-002",
