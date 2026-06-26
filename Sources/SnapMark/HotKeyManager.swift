@@ -69,6 +69,10 @@ final class HotKeyManager {
         return status == noErr ? .registered : .failed(status)
     }
 
+    func unregisterRegionShortcut() {
+        unregisterHotKeys()
+    }
+
     private func installHandlerIfNeeded() {
         guard eventHandler == nil else { return }
 

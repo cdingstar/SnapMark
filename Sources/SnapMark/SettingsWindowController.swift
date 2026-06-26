@@ -1,6 +1,8 @@
 import AppKit
 
 final class SettingsWindowController: NSWindowController, NSWindowDelegate {
+    var onShortcutRecordingBegan: (() -> KeyboardShortcut?)?
+    var onShortcutRecordingCancelled: (() -> KeyboardShortcut?)?
     var onShortcutChanged: ((KeyboardShortcut) -> Bool)?
     var onSettingsChanged: (() -> Void)?
 
@@ -67,6 +69,12 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         shortcutButton.alignment = .center
         shortcutButton.target = shortcutButton
         shortcutButton.action = #selector(ShortcutRecorderButton.beginRecording)
+        shortcutButton.onRecordingBegin = { [weak self] in
+            self?.onShortcutRecordingBegan?()
+        }
+        shortcutButton.onRecordingCancel = { [weak self] in
+            self?.onShortcutRecordingCancelled?()
+        }
         shortcutButton.onShortcutChange = { [weak self] shortcut in
             guard let self else { return false }
             let didApply = self.onShortcutChanged?(shortcut) ?? false
@@ -175,6 +183,8 @@ final class ShortcutRecorderButton: NSButton {
         }
     }
 
+    var onRecordingBegin: (() -> KeyboardShortcut?)?
+    var onRecordingCancel: (() -> KeyboardShortcut?)?
     var onShortcutChange: ((KeyboardShortcut) -> Bool)?
 
     private var isRecording = false
@@ -184,13 +194,24 @@ final class ShortcutRecorderButton: NSButton {
     }
 
     @objc func beginRecording() {
+        guard !isRecording else { return }
+        if let activeShortcut = onRecordingBegin?() {
+            shortcut = activeShortcut
+        }
         isRecording = true
         title = "请按新的快捷键"
         window?.makeFirstResponder(self)
     }
 
     func stopRecording() {
+        guard isRecording else {
+            title = shortcut.displayString
+            return
+        }
         isRecording = false
+        if let activeShortcut = onRecordingCancel?() {
+            shortcut = activeShortcut
+        }
         title = shortcut.displayString
     }
 

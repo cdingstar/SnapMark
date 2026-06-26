@@ -7,6 +7,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var regionMenuItem: NSMenuItem?
     private var settingsMenuItem: NSMenuItem?
     private var registeredRegionShortcut: KeyboardShortcut?
+    private var recordingPreviousRegionShortcut: KeyboardShortcut?
+    private var isRecordingRegionShortcut = false
     private var unresponsiveRegionShortcuts: Set<KeyboardShortcut> = []
     private var lastRegionHotKeyFireDate = Date.distantPast
     private var isRecoveringRegionHotKey = false
@@ -277,6 +279,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openSettings() {
         let controller = settingsWindowController ?? SettingsWindowController()
+        controller.onShortcutRecordingBegan = { [weak self] in
+            self?.beginRegionShortcutRecording()
+        }
+        controller.onShortcutRecordingCancelled = { [weak self] in
+            self?.cancelRegionShortcutRecording()
+        }
         controller.onShortcutChanged = { [weak self] shortcut in
             self?.applyRegionShortcut(shortcut) ?? false
         }
@@ -292,18 +300,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApplication.shared.terminate(nil)
     }
 
+    private func beginRegionShortcutRecording() -> KeyboardShortcut? {
+        guard !isRecordingRegionShortcut else {
+            return recordingPreviousRegionShortcut ?? registeredRegionShortcut ?? AppSettings.shared.regionShortcut
+        }
+
+        isRecordingRegionShortcut = true
+        recordingPreviousRegionShortcut = registeredRegionShortcut
+        hotKeyManager.unregisterRegionShortcut()
+        registeredRegionShortcut = nil
+        updateStatusMetadata()
+        return recordingPreviousRegionShortcut ?? AppSettings.shared.regionShortcut
+    }
+
+    private func cancelRegionShortcutRecording() -> KeyboardShortcut? {
+        guard isRecordingRegionShortcut else {
+            return registeredRegionShortcut
+        }
+
+        let restoredShortcut = restoreRegionShortcut(recordingPreviousRegionShortcut, showError: true)
+        finishRegionShortcutRecording()
+        return restoredShortcut
+    }
+
     private func applyRegionShortcut(_ shortcut: KeyboardShortcut) -> Bool {
-        let previousShortcut = registeredRegionShortcut
+        let previousShortcut = isRecordingRegionShortcut ? recordingPreviousRegionShortcut : registeredRegionShortcut
 
         let result = hotKeyManager.updateRegionShortcut(shortcut)
         guard result.isRegistered else {
-            if let previousShortcut {
-                let restoreResult = hotKeyManager.updateRegionShortcut(previousShortcut)
-                registeredRegionShortcut = restoreResult.isRegistered ? previousShortcut : nil
-            } else {
-                registeredRegionShortcut = nil
-            }
-            updateStatusMetadata()
+            _ = restoreRegionShortcut(previousShortcut, showError: true)
+            finishRegionShortcutRecording()
             showShortcutError(shortcut, result: result)
             return false
         }
@@ -311,8 +337,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppSettings.shared.regionShortcut = shortcut
         registeredRegionShortcut = shortcut
         unresponsiveRegionShortcuts.remove(shortcut)
+        finishRegionShortcutRecording()
         updateStatusMetadata()
         return true
+    }
+
+    private func restoreRegionShortcut(_ shortcut: KeyboardShortcut?, showError: Bool) -> KeyboardShortcut? {
+        guard let shortcut else {
+            hotKeyManager.unregisterRegionShortcut()
+            registeredRegionShortcut = nil
+            updateStatusMetadata()
+            return nil
+        }
+
+        let result = hotKeyManager.updateRegionShortcut(shortcut)
+        if result.isRegistered {
+            registeredRegionShortcut = shortcut
+        } else {
+            registeredRegionShortcut = nil
+            if showError {
+                showShortcutRestoreError(shortcut, result: result)
+            }
+        }
+
+        updateStatusMetadata()
+        return registeredRegionShortcut
+    }
+
+    private func finishRegionShortcutRecording() {
+        isRecordingRegionShortcut = false
+        recordingPreviousRegionShortcut = nil
     }
 
     private func updateStatusMetadata() {
@@ -379,6 +433,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func showShortcutError(_ shortcut: KeyboardShortcut, result: HotKeyRegistrationResult) {
         let alert = NSAlert()
         alert.messageText = "快捷键设置失败"
+        alert.informativeText = hotKeyFailureMessage(for: shortcut, result: result) + "\n请重新选择 Hotkey。"
+        alert.alertStyle = .warning
+        alert.runModal()
+    }
+
+    private func showShortcutRestoreError(_ shortcut: KeyboardShortcut, result: HotKeyRegistrationResult) {
+        let alert = NSAlert()
+        alert.messageText = "快捷键恢复失败"
         alert.informativeText = hotKeyFailureMessage(for: shortcut, result: result) + "\n请重新选择 Hotkey。"
         alert.alertStyle = .warning
         alert.runModal()

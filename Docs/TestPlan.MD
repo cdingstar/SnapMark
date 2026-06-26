@@ -71,7 +71,7 @@ Scripts/test.sh --skip-build --app dist/SnapMark.app
 | SMK-P0-HOT-001 | 自动 | 快捷键 | 默认 fallback 链为 `Command+Control+A/S/Q`。 |
 | SMK-P0-HOT-002 | 自动 | 快捷键 | 快捷键注册成功但按下不触发时，自动重新走 A/S/Q fallback。 |
 | SMK-P0-HOT-003 | 自动 | 菜单 UI | tooltip 和设置菜单短名称显示实际使用的快捷键。 |
-| SMK-P0-HOT-004 | 手动 | 快捷键 | 设置窗口录制新快捷键，冲突时提示重新选择。 |
+| SMK-P0-HOT-004 | 自动 | 快捷键设置 | 设置窗口录制新快捷键时先暂停当前热键；冲突时提示并恢复旧热键；Esc、关闭或未完成选择时恢复设置前热键；成功注册后才保存。 |
 
 ## P0 设置
 

@@ -62,6 +62,7 @@ class FunctionalTestRunner:
             TestCase("SMK-P0-HOT-001", "默认快捷键 fallback 为 A/S/Q", self.case_hotkey_fallbacks),
             TestCase("SMK-P0-HOT-002", "快捷键失效检测和自动切换逻辑存在", self.case_hotkey_health_check),
             TestCase("SMK-P0-HOT-003", "菜单与 tooltip 显示实际快捷键", self.case_hotkey_ui_text),
+            TestCase("SMK-P0-HOT-004", "设置窗口录制快捷键暂停/提交/恢复事务完整", self.case_hotkey_settings_recording_transaction),
             TestCase("SMK-P0-DRAG-001", "拖拽复制生成临时 PNG 并以 copy 操作拖出", self.case_drag_copy),
             TestCase("SMK-P0-SET-001", "设置窗口覆盖快捷键/存储目录/开机启动", self.case_settings_window),
             TestCase("SMK-P0-ICON-001", "图标资源完整且尺寸正确", self.case_icon_assets),
@@ -384,6 +385,34 @@ class FunctionalTestRunner:
         self.require("settingsMenuItem?.title" in app, "settings menu shortname missing")
         self.require("shortcut.displayString" in app, "tooltip does not use actual shortcut")
 
+    def case_hotkey_settings_recording_transaction(self) -> None:
+        app = self.read("Sources/SnapMark/AppDelegate.swift")
+        settings = self.read("Sources/SnapMark/SettingsWindowController.swift")
+        hotkey = self.read("Sources/SnapMark/HotKeyManager.swift")
+
+        self.require("func unregisterRegionShortcut()" in hotkey, "hotkey manager must expose explicit unregister for recording")
+        self.require("onShortcutRecordingBegan" in settings, "settings window must notify recording begin")
+        self.require("onShortcutRecordingCancelled" in settings, "settings window must notify recording cancel")
+        self.require("onRecordingBegin" in settings and "onRecordingCancel" in settings, "shortcut recorder must support begin/cancel hooks")
+        self.require("guard !isRecording else { return }" in settings, "recorder must not pause hotkey twice")
+        self.require("if let activeShortcut = onRecordingBegin?()" in settings, "recorder must refresh active shortcut before recording")
+        self.require("if let activeShortcut = onRecordingCancel?()" in settings, "recorder must restore button state on cancel")
+        self.require("windowWillClose" in settings and "shortcutButton.stopRecording()" in settings, "closing settings must cancel recording")
+        self.require("event.keyCode == 53" in settings and "stopRecording()" in settings, "Esc must cancel shortcut recording")
+
+        self.require("recordingPreviousRegionShortcut" in app, "app must remember the pre-recording hotkey")
+        self.require("isRecordingRegionShortcut" in app, "app must track recording transaction state")
+        self.require("beginRegionShortcutRecording()" in app, "app must begin recording transaction")
+        self.require("hotKeyManager.unregisterRegionShortcut()" in app, "app must unregister active hotkey while recording")
+        self.require("cancelRegionShortcutRecording()" in app, "app must restore old hotkey when recording is cancelled")
+        self.require("restoreRegionShortcut(recordingPreviousRegionShortcut" in app, "cancel path must restore previous hotkey")
+        self.require("let previousShortcut = isRecordingRegionShortcut ? recordingPreviousRegionShortcut : registeredRegionShortcut" in app, "apply must restore pre-recording hotkey on failure")
+        self.require("_ = restoreRegionShortcut(previousShortcut, showError: true)" in app, "failed apply must restore previous hotkey")
+        self.require("showShortcutError(shortcut, result: result)" in app, "failed apply must alert the user")
+        self.require("finishRegionShortcutRecording()" in app, "recording state must be cleared after success or failure")
+        self.require("AppSettings.shared.regionShortcut = shortcut" in app, "settings should only persist after successful hotkey registration")
+        self.require("showShortcutRestoreError" in app, "restore failure must be surfaced")
+
     def case_drag_copy(self) -> None:
         drag = self.read("Sources/SnapMark/DragExportButton.swift")
         store = self.read("Sources/SnapMark/AutoSaveStore.swift")
@@ -526,6 +555,9 @@ class FunctionalTestRunner:
             "SMK-P0-EDITOR-004",
             "SMK-P0-SAVE-001",
             "SMK-P0-HOT-001",
+            "SMK-P0-HOT-002",
+            "SMK-P0-HOT-003",
+            "SMK-P0-HOT-004",
             "SMK-P0-DRAG-001",
             "SMK-P0-SET-001",
             "SMK-P0-BUNDLE-005",
