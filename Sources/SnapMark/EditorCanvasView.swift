@@ -26,6 +26,11 @@ final class EditorCanvasView: NSView {
     private var dragStart: CGPoint?
     private var dragCurrent: CGPoint?
     private var dragPoints: [CGPoint] = []
+    private var selectedAnnotationID: UUID?
+    private var movingAnnotationID: UUID?
+    private var moveStartPoint: CGPoint?
+    private var moveOriginalStart: CGPoint?
+    private var moveOriginalEnd: CGPoint?
     private var viewportSize = CGSize(width: 560, height: 360)
     private var panStartInWindow: CGPoint?
     private var panStartBoundsOrigin: CGPoint?
@@ -79,6 +84,8 @@ final class EditorCanvasView: NSView {
             ImageRenderer.draw(annotations: [preview], over: baseImage, canvasRect: imageRect, isPreview: true)
         }
 
+        drawSelectedTextBorder()
+
         NSGraphicsContext.restoreGraphicsState()
     }
 
@@ -90,6 +97,11 @@ final class EditorCanvasView: NSView {
 
         window?.makeFirstResponder(self)
         guard let point = imagePoint(from: convert(event.locationInWindow, from: nil)) else { return }
+        if currentTool == .text, beginTextMove(at: point) {
+            return
+        }
+
+        selectedAnnotationID = nil
         dragStart = point
         dragCurrent = point
         dragPoints = [point]
@@ -104,6 +116,12 @@ final class EditorCanvasView: NSView {
             return
         }
 
+        if movingAnnotationID != nil {
+            guard let point = imagePoint(from: convert(event.locationInWindow, from: nil)) else { return }
+            updateTextMove(to: point)
+            return
+        }
+
         guard dragStart != nil, let point = imagePoint(from: convert(event.locationInWindow, from: nil)) else { return }
         dragCurrent = point
         if currentTool == .eraser {
@@ -115,6 +133,11 @@ final class EditorCanvasView: NSView {
     override func mouseUp(with event: NSEvent) {
         if panStartInWindow != nil {
             endPan()
+            return
+        }
+
+        if movingAnnotationID != nil {
+            endTextMove()
             return
         }
 
@@ -135,12 +158,11 @@ final class EditorCanvasView: NSView {
         }
 
         if currentTool == .text {
-            guard let text = promptForText(), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            guard let options = promptForTextOptions() else {
                 needsDisplay = true
                 return
             }
-            annotation.text = text
-            annotation.lineWidth = 0
+            applyTextOptions(options, to: &annotation)
         }
 
         annotations.append(annotation)
@@ -356,18 +378,109 @@ final class EditorCanvasView: NSView {
         )
     }
 
-    private func promptForText() -> String? {
-        let alert = NSAlert()
-        alert.messageText = "添加文字"
-        alert.informativeText = "输入要放到截图上的文字。"
-        alert.addButton(withTitle: "添加")
-        alert.addButton(withTitle: "取消")
+    private func promptForTextOptions() -> TextAnnotationOptions? {
+        TextAnnotationDialogController().runModal()
+    }
 
-        let textField = NSTextField(frame: CGRect(x: 0, y: 0, width: 280, height: 24))
-        textField.placeholderString = "标注文字"
-        alert.accessoryView = textField
+    private func applyTextOptions(_ options: TextAnnotationOptions, to annotation: inout Annotation) {
+        annotation.text = options.text
+        annotation.color = options.color
+        annotation.fontSize = options.fontSize
+        annotation.lineWidth = 0
+        fitTextAnnotation(&annotation)
+    }
 
-        let response = alert.runModal()
-        return response == .alertFirstButtonReturn ? textField.stringValue : nil
+    private func fitTextAnnotation(_ annotation: inout Annotation) {
+        let maxTextWidth = max(1, min(imageSize.width, max(160, imageSize.width - annotation.rect.minX)))
+        let fittedSize = TextAnnotationMetrics.fittedSize(
+            for: annotation.text,
+            fontSize: annotation.fontSize,
+            maxWidth: maxTextWidth
+        )
+        let width = min(max(1, imageSize.width), max(annotation.rect.width, fittedSize.width))
+        let height = min(max(1, imageSize.height), max(annotation.rect.height, fittedSize.height))
+        let origin = CGPoint(
+            x: min(max(0, annotation.rect.minX), max(0, imageSize.width - width)),
+            y: min(max(0, annotation.rect.minY), max(0, imageSize.height - height))
+        )
+        annotation.start = origin
+        annotation.end = CGPoint(x: origin.x + width, y: origin.y + height)
+    }
+
+    private func beginTextMove(at point: CGPoint) -> Bool {
+        guard let index = textAnnotationIndex(at: point) else { return false }
+        let annotation = annotations[index]
+        selectedAnnotationID = annotation.id
+        movingAnnotationID = annotation.id
+        moveStartPoint = point
+        moveOriginalStart = annotation.start
+        moveOriginalEnd = annotation.end
+        needsDisplay = true
+        return true
+    }
+
+    private func updateTextMove(to point: CGPoint) {
+        guard
+            let movingAnnotationID,
+            let index = annotations.firstIndex(where: { $0.id == movingAnnotationID }),
+            let moveStartPoint,
+            let moveOriginalStart,
+            let moveOriginalEnd
+        else { return }
+
+        let originalRect = CGRect(
+            x: min(moveOriginalStart.x, moveOriginalEnd.x),
+            y: min(moveOriginalStart.y, moveOriginalEnd.y),
+            width: abs(moveOriginalStart.x - moveOriginalEnd.x),
+            height: abs(moveOriginalStart.y - moveOriginalEnd.y)
+        )
+        var delta = CGPoint(x: point.x - moveStartPoint.x, y: point.y - moveStartPoint.y)
+        if originalRect.minX + delta.x < 0 {
+            delta.x = -originalRect.minX
+        }
+        if originalRect.maxX + delta.x > imageSize.width {
+            delta.x = imageSize.width - originalRect.maxX
+        }
+        if originalRect.minY + delta.y < 0 {
+            delta.y = -originalRect.minY
+        }
+        if originalRect.maxY + delta.y > imageSize.height {
+            delta.y = imageSize.height - originalRect.maxY
+        }
+
+        var annotation = annotations[index]
+        annotation.start = CGPoint(x: moveOriginalStart.x + delta.x, y: moveOriginalStart.y + delta.y)
+        annotation.end = CGPoint(x: moveOriginalEnd.x + delta.x, y: moveOriginalEnd.y + delta.y)
+        annotations[index] = annotation
+    }
+
+    private func endTextMove() {
+        movingAnnotationID = nil
+        moveStartPoint = nil
+        moveOriginalStart = nil
+        moveOriginalEnd = nil
+    }
+
+    private func textAnnotationIndex(at point: CGPoint) -> Int? {
+        annotations.indices.reversed().first { index in
+            let annotation = annotations[index]
+            return annotation.tool == .text && annotation.rect.insetBy(dx: -6, dy: -6).contains(point)
+        }
+    }
+
+    private func drawSelectedTextBorder() {
+        guard
+            let selectedAnnotationID,
+            let annotation = annotations.first(where: { $0.id == selectedAnnotationID && $0.tool == .text })
+        else { return }
+
+        let path = NSBezierPath(rect: annotation.rect.insetBy(dx: -4, dy: -4))
+        path.lineWidth = max(1 / max(zoomScale, 1), 0.75)
+        let dash: [CGFloat] = [4 / max(zoomScale, 1), 3 / max(zoomScale, 1)]
+        dash.withUnsafeBufferPointer { buffer in
+            path.setLineDash(buffer.baseAddress, count: dash.count, phase: 0)
+        }
+        NSColor.controlAccentColor.withAlphaComponent(0.85).setStroke()
+        path.stroke()
     }
 }

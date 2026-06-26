@@ -57,11 +57,13 @@ class FunctionalTestRunner:
             TestCase("SMK-P0-ANN-001", "编辑器标注工具覆盖箭头/矩形/文字/马赛克/放大镜", self.case_annotation_tools),
             TestCase("SMK-P0-ANN-003", "编辑器橡皮擦支持 S/M/L 不同大小", self.case_eraser_tool_sizes),
             TestCase("SMK-P0-ANN-004", "橡皮擦自由路径预览和导出填充底色", self.case_eraser_path_rendering_logic),
+            TestCase("SMK-P0-ANN-005", "文字标注弹窗支持颜色字号和预览", self.case_text_annotation_dialog),
             TestCase("SMK-P0-EDITOR-001", "编辑器使用棋盘底、居中显示、缩放和平移", self.case_editor_checkerboard_zoom_pan),
             TestCase("SMK-P0-EDITOR-002", "编辑器缩放不影响保存/复制输出像素", self.case_editor_export_independent_from_zoom),
             TestCase("SMK-P0-EDITOR-003", "编辑器标注坐标按缩放反算到图片像素", self.case_editor_annotation_coordinate_mapping),
             TestCase("SMK-P0-EDITOR-004", "编辑器 fit 和缩放范围覆盖 1:8 到 8:1", self.case_editor_zoom_range),
             TestCase("SMK-P0-EDITOR-005", "toolbar 左侧信息和缩放条组合且右侧工具保持单行", self.case_editor_toolbar_stacked_info_layout),
+            TestCase("SMK-P0-EDITOR-006", "文字标注自动适配尺寸且可拖拽移动", self.case_text_annotation_sizing_and_drag),
             TestCase("SMK-P0-SAVE-001", "自动保存目录读取设置且默认 Downloads", self.case_autosave_settings),
             TestCase("SMK-P0-HOT-001", "默认快捷键 fallback 为 A/S/Q", self.case_hotkey_fallbacks),
             TestCase("SMK-P0-HOT-002", "快捷键失效检测和自动切换逻辑存在", self.case_hotkey_health_check),
@@ -384,6 +386,39 @@ class FunctionalTestRunner:
         self.require(erase_bounds == (2, 2, 16, 16), "single-point eraser fixture should create centered erase circle")
         self.require("NSColor.white.withAlphaComponent(isPreview ? 0.78 : 1)" in renderer, "eraser should fill white after mouse-up")
 
+    def case_text_annotation_dialog(self) -> None:
+        annotation = self.read("Sources/SnapMark/Annotation.swift")
+        dialog = self.read("Sources/SnapMark/TextAnnotationDialog.swift")
+        canvas = self.read("Sources/SnapMark/EditorCanvasView.swift")
+        renderer = self.read("Sources/SnapMark/ImageRenderer.swift")
+
+        for token in [
+            "struct TextAnnotationOptions",
+            "enum TextAnnotationMetrics",
+            "static let defaultFontSize: CGFloat = 28",
+            "static func fittedSize(for text: String, fontSize: CGFloat, maxWidth: CGFloat) -> CGSize",
+            "final class TextAnnotationDialogController",
+            "NSTextView",
+            "NSColorWell",
+            "NSSlider(value: Double(TextAnnotationMetrics.defaultFontSize)",
+            "previewLabel",
+            "fontSizeLabel.stringValue = \"\\(Int(fontSize)) px\"",
+            "TextAnnotationOptions(",
+        ]:
+            self.require(token in dialog, f"text annotation dialog missing {token}")
+        self.require("promptForTextOptions() -> TextAnnotationOptions?" in canvas, "canvas should use text options dialog")
+        self.require("TextAnnotationDialogController().runModal()" in canvas, "text dialog should be a custom modal controller")
+        self.require("promptForText()" not in canvas, "old plain text alert should be removed")
+        self.require("var fontSize: CGFloat = TextAnnotationMetrics.defaultFontSize" in annotation, "annotation must persist selected text size")
+        self.require("annotation.fontSize" in renderer, "renderer should use selected text size")
+        self.require(".paragraphStyle" in renderer, "text renderer should support wrapped text")
+
+        sample = "SnapMark Text"
+        font_size = 28
+        estimated_width = max(96, min(font_size * 18, len(sample) * font_size * 0.62) + font_size * 0.9)
+        estimated_height = font_size * 1.35
+        self.require(estimated_width > 180 and estimated_height > 30, "text sizing fixture should scale with content and font size")
+
     def case_editor_checkerboard_zoom_pan(self) -> None:
         canvas = self.read("Sources/SnapMark/EditorCanvasView.swift")
         editor = self.read("Sources/SnapMark/EditorWindowController.swift")
@@ -463,6 +498,42 @@ class FunctionalTestRunner:
         fit_zoom = 0.625
         formatted_zoom = f"{self.round_away(fit_zoom * 100)}%"
         self.require(formatted_zoom == "63%", "zoom formatting fixture should match Swift rounded percent behavior")
+
+    def case_text_annotation_sizing_and_drag(self) -> None:
+        canvas = self.read("Sources/SnapMark/EditorCanvasView.swift")
+
+        for token in [
+            "applyTextOptions(_ options: TextAnnotationOptions, to annotation: inout Annotation)",
+            "fitTextAnnotation(&annotation)",
+            "TextAnnotationMetrics.fittedSize(",
+            "annotation.fontSize = options.fontSize",
+            "annotation.color = options.color",
+            "beginTextMove(at:",
+            "currentTool == .text, beginTextMove(at: point)",
+            "updateTextMove(to:",
+            "endTextMove()",
+            "textAnnotationIndex(at:",
+            "selectedAnnotationID",
+            "movingAnnotationID",
+            "drawSelectedTextBorder()",
+            "annotations[index] = annotation",
+        ]:
+            self.require(token in canvas, f"text annotation sizing/drag missing {token}")
+        self.require("annotation.rect.insetBy(dx: -6, dy: -6).contains(point)" in canvas, "text hit target should be forgiving")
+        self.require("imageSize.width - originalRect.maxX" in canvas, "text dragging should clamp against right edge")
+        self.require("imageSize.height - originalRect.maxY" in canvas, "text dragging should clamp against top edge")
+        self.require("path.setLineDash" in canvas and "NSColor.controlAccentColor" in canvas, "selected text should show an editor-only outline")
+
+        start = (10, 10)
+        original_rect = {"min_x": 10, "max_x": 110, "min_y": 10, "max_y": 50}
+        image_size = {"width": 128, "height": 80}
+        desired_point = (96, 72)
+        delta = [desired_point[0] - start[0], desired_point[1] - start[1]]
+        if original_rect["max_x"] + delta[0] > image_size["width"]:
+            delta[0] = image_size["width"] - original_rect["max_x"]
+        if original_rect["max_y"] + delta[1] > image_size["height"]:
+            delta[1] = image_size["height"] - original_rect["max_y"]
+        self.require(tuple(delta) == (18, 30), "text drag fixture should clamp movement inside image bounds")
 
     def case_editor_export_independent_from_zoom(self) -> None:
         canvas = self.read("Sources/SnapMark/EditorCanvasView.swift")
@@ -743,11 +814,13 @@ class FunctionalTestRunner:
             "SMK-P0-ANN-001",
             "SMK-P0-ANN-003",
             "SMK-P0-ANN-004",
+            "SMK-P0-ANN-005",
             "SMK-P0-EDITOR-001",
             "SMK-P0-EDITOR-002",
             "SMK-P0-EDITOR-003",
             "SMK-P0-EDITOR-004",
             "SMK-P0-EDITOR-005",
+            "SMK-P0-EDITOR-006",
             "SMK-P0-SAVE-001",
             "SMK-P0-HOT-001",
             "SMK-P0-HOT-002",

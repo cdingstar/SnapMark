@@ -79,6 +79,7 @@ struct Annotation: Identifiable {
     var text: String = ""
     var color: NSColor = .systemRed
     var lineWidth: CGFloat = 4
+    var fontSize: CGFloat = TextAnnotationMetrics.defaultFontSize
     var points: [CGPoint] = []
 
     var rect: CGRect {

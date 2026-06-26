@@ -98,11 +98,13 @@ enum ImageRenderer {
     }
 
     private static func drawText(_ annotation: Annotation, isPreview: Bool) {
-        let fontSize = max(18, min(44, annotation.rect.height * 0.65))
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byWordWrapping
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: fontSize, weight: .semibold),
+            .font: NSFont.systemFont(ofSize: annotation.fontSize, weight: .semibold),
             .foregroundColor: annotation.color.withAlphaComponent(isPreview ? 0.55 : 1),
-            .backgroundColor: NSColor.white.withAlphaComponent(isPreview ? 0.45 : 0.72)
+            .backgroundColor: NSColor.white.withAlphaComponent(isPreview ? 0.45 : 0.72),
+            .paragraphStyle: paragraph
         ]
 
         let rect = annotation.rect.insetBy(dx: -2, dy: -2)
