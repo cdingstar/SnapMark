@@ -66,6 +66,7 @@ class FunctionalTestRunner:
             TestCase("SMK-P0-BUNDLE-001", "Info.plist app 元数据完整", self.case_info_plist),
             TestCase("SMK-P0-BUNDLE-002", "构建脚本包含稳定签名和资源打包", self.case_build_script),
             TestCase("SMK-P0-BUNDLE-005", "版本号遵循 1.<自动递增>.MMDD 规则", self.case_version_rule),
+            TestCase("SMK-P0-BUNDLE-006", "编译完成后安装并重启新 app", self.case_build_restarts_app),
             TestCase("SMK-P0-ARCH-001", "截图相关模块已拆分且文件大小受控", self.case_module_size_budget),
             TestCase("SMK-P1-PLAN-001", "P1 功能规划已记录", self.case_p1_plan_recorded),
             TestCase("SMK-PSTAR-PLAN-001", "P* 功能规划已记录", self.case_pstar_plan_recorded),
@@ -390,6 +391,8 @@ class FunctionalTestRunner:
         for token in ["generate_icon_assets.py", "iconutil", "swift build -c release", "codesign", "SnapMarkIcon.icns", "StatusIcon.png"]:
             self.require(token in build, f"build script missing {token}")
         self.require("/Applications/SnapMark.app" in install, "install script should prefer /Applications")
+        self.require("--no-launch" in build, "build script should allow install script to avoid duplicate launches")
+        self.require("--skip-build" in install, "install script should support launching an already built app")
 
     def case_version_rule(self) -> None:
         state = self.require_file("Resources/Version.env").read_text(encoding="utf-8")
@@ -431,6 +434,16 @@ class FunctionalTestRunner:
             self.require(app_version.endswith(datetime.now().strftime(".%m%d")), f"app version should use today's MMDD: {app_version}")
             version_minor = int(app_version.split(".")[1])
             self.require(version_minor == minor, f"version state minor {minor} does not match app version {app_version}")
+
+    def case_build_restarts_app(self) -> None:
+        build = self.read("Scripts/build_app.sh")
+        install = self.read("Scripts/install_app.sh")
+        self.require("LAUNCH_AFTER_BUILD" in build, "build script must default to launching after successful compile")
+        self.require('"${ROOT_DIR}/Scripts/install_app.sh" --skip-build' in build, "build script must install and launch after build")
+        self.require('"${ROOT_DIR}/Scripts/build_app.sh" --no-launch' in install, "install script must avoid recursive launch during build")
+        self.require("pkill -x SnapMark" in install, "install script must stop the old app before replacement")
+        self.require("pgrep -x SnapMark" in install, "install script must verify old/new SnapMark process state")
+        self.require("open \"${INSTALL_APP}\"" in install, "install script must open the freshly installed app")
 
     def case_module_size_budget(self) -> None:
         limits = {
@@ -478,6 +491,7 @@ class FunctionalTestRunner:
             "SMK-P0-DRAG-001",
             "SMK-P0-SET-001",
             "SMK-P0-BUNDLE-005",
+            "SMK-P0-BUNDLE-006",
         ]:
             self.require(case_id in test_plan, f"test plan missing {case_id}")
 

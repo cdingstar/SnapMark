@@ -7,6 +7,20 @@ EXECUTABLE="${ROOT_DIR}/.build/release/SnapMark"
 INFO_PLIST="${ROOT_DIR}/Resources/Info.plist"
 VERSION_FILE="${ROOT_DIR}/Resources/Version.env"
 PLIST_BUDDY="/usr/libexec/PlistBuddy"
+LAUNCH_AFTER_BUILD="${SNAPMARK_LAUNCH_AFTER_BUILD:-1}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --no-launch)
+      LAUNCH_AFTER_BUILD=0
+      shift
+      ;;
+    *)
+      echo "unknown argument: $1" >&2
+      exit 2
+      ;;
+  esac
+done
 
 read_version_value() {
   local key="$1"
@@ -86,4 +100,8 @@ fi
 
 "${ROOT_DIR}/Scripts/test.sh" --skip-build --app "${APP_DIR}"
 
-echo "${APP_DIR}"
+if [[ "${LAUNCH_AFTER_BUILD}" -eq 1 ]]; then
+  "${ROOT_DIR}/Scripts/install_app.sh" --skip-build
+else
+  echo "${APP_DIR}"
+fi

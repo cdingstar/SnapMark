@@ -41,7 +41,6 @@ swift run SnapMark
 ```bash
 chmod +x Scripts/build_app.sh
 Scripts/build_app.sh
-open dist/SnapMark.app
 ```
 
 构建结果位于：
@@ -49,6 +48,8 @@ open dist/SnapMark.app
 ```text
 dist/SnapMark.app
 ```
+
+构建和 testcase 通过后，脚本会自动安装到稳定路径并重启 SnapMark。默认启动路径为 `/Applications/SnapMark.app`，避免运行中的 app 仍是旧版本或临时 `dist` 路径。
 
 `Scripts/build_app.sh` 会优先使用本机的 `Apple Development` 证书签名，保持稳定的代码签名身份。这样 macOS 的屏幕录制权限会绑定到同一个 SnapMark app，避免每次重新构建后都被当成新的临时应用。
 
@@ -73,7 +74,7 @@ Scripts/test.sh
 Docs/TestPlan.MD
 ```
 
-`Scripts/build_app.sh` 会在 release build、资源打包和签名完成后自动执行 testcase。新增功能时需要同步更新 `Docs/TestPlan.MD` 和 `Tests/run_functional_tests.py`，保证构建会检查新功能。
+`Scripts/build_app.sh` 会在 release build、资源打包和签名完成后自动执行 testcase；全部通过后会停止旧进程、安装并启动新 app。新增功能时需要同步更新 `Docs/TestPlan.MD` 和 `Tests/run_functional_tests.py`，保证构建会检查新功能。
 
 ## 安装到稳定路径
 
