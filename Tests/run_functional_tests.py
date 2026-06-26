@@ -49,6 +49,7 @@ class FunctionalTestRunner:
             TestCase("SMK-P0-SHOT-007", "区域截图坐标按屏幕和 backing scale 映射", self.case_region_coordinate_mapping),
             TestCase("SMK-P0-SHOT-008", "实际截图内容尺寸与选择像素尺寸一致", self.case_region_capture_pixel_size),
             TestCase("SMK-P0-SHOT-009", "选择框尺寸提示显示实际像素", self.case_selection_size_label_pixels),
+            TestCase("SMK-P0-SHOT-010", "选区坐标面板显示 local/screen/capture/pixel 转换", self.case_selection_coordinate_overlay),
             TestCase("SMK-P0-MAG-001", "截图选择放大镜为 5x 像素化放大并扩大视野", self.case_selection_magnifier),
             TestCase("SMK-P0-ANN-001", "编辑器标注工具覆盖箭头/矩形/文字/马赛克/放大镜", self.case_annotation_tools),
             TestCase("SMK-P0-EDITOR-001", "编辑器使用棋盘底、居中显示、缩放和平移", self.case_editor_checkerboard_zoom_pan),
@@ -137,7 +138,7 @@ class FunctionalTestRunner:
             "backingScaleFactor = max(1, screen.backingScaleFactor)",
             "floor(rect.minX * scale) / scale",
             "ceil(rect.maxX * scale) / scale",
-            "screenFrame.maxY - appKitRect.maxY",
+            "screenFrame.maxY - appKitPoint.y",
             "coreGraphicsDisplayBounds(for: screen)",
             "CGDisplayBounds(CGDirectDisplayID",
             "pixelSize = Self.pixelSize",
@@ -145,6 +146,8 @@ class FunctionalTestRunner:
             self.require(token in region, f"coordinate mapper missing {token}")
 
         self.require("ScreenCaptureRegion(appKitRect: screenRect, screen: window.screen)" in controller, "selection completion must map through ScreenCaptureRegion")
+        self.require("static func coreGraphicsPoint(from appKitPoint: CGPoint, on screen: NSScreen)" in region, "coreGraphics point conversion missing")
+        self.require("static func backingPixelPoint(from appKitPoint: CGPoint, on screen: NSScreen)" in region, "backing pixel point conversion missing")
         self.require("capture(region: ScreenCaptureRegion)" in service, "capture service must accept mapped region")
         self.require("region.coreGraphicsRect" in service, "capture service must use CoreGraphics rect")
         self.require("expectedPixelSize: region.pixelSize" in service, "capture service must preserve expected pixel size")
@@ -189,6 +192,19 @@ class FunctionalTestRunner:
         self.require("rect.height * scale" in selection, "selection height label must convert points to pixels")
         self.require(" px" in selection, "selection label must show px unit")
 
+    def case_selection_coordinate_overlay(self) -> None:
+        selection = self.read("Sources/SnapMark/ScreenSelectionView.swift")
+        overlay = self.read("Sources/SnapMark/SelectionCoordinateOverlay.swift")
+        region = self.read("Sources/SnapMark/ScreenCaptureRegion.swift")
+        self.require("SelectionCoordinateOverlay.draw" in selection, "selection view must draw coordinate overlay")
+        for token in ["zoom 5x / source 41px", "cursor local", "screen", "capture", " px ", "start  local", "end    local", "region capture", "pixels"]:
+            self.require(token in overlay, f"coordinate overlay missing {token}")
+        self.require("ScreenCaptureRegion.coreGraphicsPoint(from: screenPoint, on: screen)" in overlay, "overlay must use shared capture coordinate conversion")
+        self.require("ScreenCaptureRegion.backingPixelPoint(from: screenPoint, on: screen)" in overlay, "overlay must use shared pixel coordinate conversion")
+        self.require("ScreenCaptureRegion(appKitRect: screenRect, screen: screen)" in overlay, "overlay must show final region conversion")
+        self.require("coreGraphicsPoint(from: appKitPoint" in region and "screenFrame.maxY - appKitPoint.y" in region, "capture point conversion must use y-flip")
+        self.require("backingPixelPoint(from appKitPoint" in region and "* scale).rounded()" in region, "pixel point conversion must use backing scale")
+
     def case_selection_magnifier(self) -> None:
         magnifier = self.read("Sources/SnapMark/SelectionMagnifierRenderer.swift")
         geometry = self.read("Sources/SnapMark/SelectionMagnifierGeometry.swift")
@@ -197,6 +213,8 @@ class FunctionalTestRunner:
         self.require("let zoom: CGFloat = 5" in magnifier, "magnifier zoom must be reduced to 5x")
         self.require("let sourcePixels = 41" in magnifier, "magnifier source window must show a larger pixel area")
         self.require("SelectionMagnifierGeometry.make" in magnifier, "magnifier must use shared crop geometry")
+        self.require("drawZoomLabel(in: lensRect)" in magnifier, "magnifier must visibly show current zoom factor")
+        self.require("\\(Int(zoom))x / \\(sourcePixels)px" in magnifier, "magnifier label must show zoom and source pixels")
         self.require("ScreenCaptureRegion.coreGraphicsDisplayBounds(for: screen)" in controller, "magnifier snapshot must use CoreGraphics display bounds")
         self.require("imageInterpolation = .none" in magnifier, "magnifier must be pixelated")
         self.require("floor(point.x * scaleX)" in geometry, "magnifier focus x must map from local point to snapshot pixel")
@@ -419,8 +437,10 @@ class FunctionalTestRunner:
             "Sources/SnapMark/ScreenSelectionController.swift": 140,
             "Sources/SnapMark/ScreenSelectionView.swift": 280,
             "Sources/SnapMark/ScreenSelectionWindow.swift": 80,
+            "Sources/SnapMark/SelectionCoordinateOverlay.swift": 130,
             "Sources/SnapMark/SelectionMagnifierGeometry.swift": 100,
             "Sources/SnapMark/SelectionMagnifierRenderer.swift": 180,
+            "Sources/SnapMark/ScreenCaptureRegion.swift": 120,
             "Sources/SnapMark/WindowInspector.swift": 140,
         }
         for relative, limit in limits.items():
@@ -446,6 +466,7 @@ class FunctionalTestRunner:
             "SMK-P0-SHOT-007",
             "SMK-P0-SHOT-008",
             "SMK-P0-SHOT-009",
+            "SMK-P0-SHOT-010",
             "SMK-P0-MAG-001",
             "SMK-P0-ANN-001",
             "SMK-P0-EDITOR-001",

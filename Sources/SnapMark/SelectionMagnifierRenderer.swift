@@ -44,6 +44,7 @@ struct SelectionMagnifierRenderer {
 
         drawPixelGrid(in: lensRect, sourcePixels: geometry.gridPixels)
         drawCrosshair(in: lensRect, focusUnitPoint: geometry.focusUnitPoint)
+        drawZoomLabel(in: lensRect)
 
         NSColor.systemBlue.setStroke()
         let border = NSBezierPath(rect: lensRect)
@@ -131,5 +132,23 @@ struct SelectionMagnifierRenderer {
 
         NSColor.systemRed.withAlphaComponent(0.18).setFill()
         NSBezierPath(rect: CGRect(x: center.x - 5, y: center.y - 5, width: 10, height: 10)).fill()
+    }
+
+    private func drawZoomLabel(in rect: CGRect) {
+        let text = "\(Int(zoom))x / \(sourcePixels)px"
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold),
+            .foregroundColor: NSColor.white
+        ]
+        let size = text.size(withAttributes: attributes)
+        let labelRect = CGRect(
+            x: rect.minX + 6,
+            y: rect.maxY - size.height - 10,
+            width: size.width + 10,
+            height: size.height + 6
+        )
+        NSColor.black.withAlphaComponent(0.68).setFill()
+        NSBezierPath(roundedRect: labelRect, xRadius: 4, yRadius: 4).fill()
+        text.draw(at: CGPoint(x: labelRect.minX + 5, y: labelRect.minY + 3), withAttributes: attributes)
     }
 }

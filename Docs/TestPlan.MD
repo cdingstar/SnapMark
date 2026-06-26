@@ -33,12 +33,13 @@ Scripts/test.sh --skip-build --app dist/SnapMark.app
 | SMK-P0-SHOT-007 | 自动 | 坐标映射 | 区域选择的 AppKit point 坐标按屏幕和 backing scale 转换为 CoreGraphics 截图坐标，避免截图内容偏移或尺寸错误。 |
 | SMK-P0-SHOT-008 | 自动 | 截图内容 | 实际截图输出尺寸必须与选择区域换算后的像素尺寸一致，避免选区和结果尺寸不一致。 |
 | SMK-P0-SHOT-009 | 自动 | 选区提示 | 选择框尺寸提示显示实际像素 `px`，不是 AppKit point。 |
+| SMK-P0-SHOT-010 | 自动 | 坐标面板 | 选区时显示 `local -> screen -> capture -> pixel` 坐标转换、缩放倍率和最终 region，便于确认选择区域与实际截图严格一致。 |
 
 ## P0 放大镜
 
 | ID | 类型 | 模块 | 测试点 |
 | --- | --- | --- | --- |
-| SMK-P0-MAG-001 | 自动 | 截图放大镜 | 激活截图时 mouse move 显示 5x 像素化放大，使用更大的 41px source window，放大镜十字线和实际截图坐标一致。 |
+| SMK-P0-MAG-001 | 自动 | 截图放大镜 | 激活截图时 mouse move 显示 5x 像素化放大，使用更大的 41px source window，并在放大镜内显示当前倍率。放大镜十字线和实际截图坐标一致。 |
 | SMK-P0-MAG-002 | 手动 | 截图放大镜 | 右下角放不下时自动换到其他可完整显示位置。 |
 
 ## P0 标注与编辑

@@ -64,6 +64,15 @@ final class ScreenSelectionView: NSView {
 
         if let currentPoint {
             magnifier.draw(at: currentPoint, in: bounds)
+            if let window {
+                SelectionCoordinateOverlay.draw(
+                    currentPoint: currentPoint,
+                    startPoint: isDraggingSelection ? startPoint : nil,
+                    selectionRect: isDraggingSelection ? selectionRect : nil,
+                    in: bounds,
+                    window: window
+                )
+            }
         }
     }
 

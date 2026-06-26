@@ -36,6 +36,25 @@ struct ScreenCaptureRegion: Equatable {
         return CGDisplayBounds(CGDirectDisplayID(screenNumber.uint32Value))
     }
 
+    static func coreGraphicsPoint(from appKitPoint: CGPoint, on screen: NSScreen) -> CGPoint {
+        let screenFrame = screen.frame
+        let displayBounds = coreGraphicsDisplayBounds(for: screen)
+        return CGPoint(
+            x: displayBounds.minX + (appKitPoint.x - screenFrame.minX),
+            y: displayBounds.minY + (screenFrame.maxY - appKitPoint.y)
+        )
+    }
+
+    static func backingPixelPoint(from appKitPoint: CGPoint, on screen: NSScreen) -> CGPoint {
+        let capturePoint = coreGraphicsPoint(from: appKitPoint, on: screen)
+        let displayBounds = coreGraphicsDisplayBounds(for: screen)
+        let scale = max(1, screen.backingScaleFactor)
+        return CGPoint(
+            x: ((capturePoint.x - displayBounds.minX) * scale).rounded(),
+            y: ((capturePoint.y - displayBounds.minY) * scale).rounded()
+        )
+    }
+
     private static func bestScreen(for rect: CGRect) -> NSScreen? {
         NSScreen.screens.max { lhs, rhs in
             intersectionArea(lhs.frame, rect) < intersectionArea(rhs.frame, rect)
@@ -64,11 +83,13 @@ struct ScreenCaptureRegion: Equatable {
     }
 
     private static func coreGraphicsRect(from appKitRect: CGRect, on screen: NSScreen) -> CGRect {
-        let screenFrame = screen.frame
-        let displayBounds = coreGraphicsDisplayBounds(for: screen)
+        let origin = coreGraphicsPoint(
+            from: CGPoint(x: appKitRect.minX, y: appKitRect.maxY),
+            on: screen
+        )
         return CGRect(
-            x: displayBounds.minX + (appKitRect.minX - screenFrame.minX),
-            y: displayBounds.minY + (screenFrame.maxY - appKitRect.maxY),
+            x: origin.x,
+            y: origin.y,
             width: appKitRect.width,
             height: appKitRect.height
         )
