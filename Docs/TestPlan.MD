@@ -93,6 +93,7 @@ Scripts/test.sh --skip-build --app dist/SnapMark.app
 | SMK-P0-BUNDLE-004 | 自动 | codesign | app bundle 通过 `codesign --verify --deep --strict`。 |
 | SMK-P0-BUNDLE-005 | 自动 | 版本规则 | 每次成功编译 app 自动递增 `1.<auto-minor>.MMDD`，并写入 bundle version。 |
 | SMK-P0-BUNDLE-006 | 自动 | 启动确认 | 编译完成并测试通过后，自动停止旧进程、安装到稳定路径并启动新的 SnapMark app。 |
+| SMK-P0-BUNDLE-007 | 自动 | 关于菜单 | 菜单显示 `关于 V<version> <HHMMSS>`，并且构建脚本写入 bundle build time。 |
 
 ## 架构与资源
 

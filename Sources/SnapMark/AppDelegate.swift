@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var regionMenuItem: NSMenuItem?
     private var settingsMenuItem: NSMenuItem?
+    private var aboutMenuItem: NSMenuItem?
     private var registeredRegionShortcut: KeyboardShortcut?
     private var recordingPreviousRegionShortcut: KeyboardShortcut?
     private var isRecordingRegionShortcut = false
@@ -64,6 +65,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let settingsItem = NSMenuItem(title: "设置...", action: #selector(openSettings), keyEquivalent: "")
         settingsMenuItem = settingsItem
         menu.addItem(settingsItem)
+        let aboutItem = NSMenuItem(title: "关于 \(AppVersion.aboutVersionText)", action: #selector(showAbout), keyEquivalent: "")
+        aboutMenuItem = aboutItem
+        menu.addItem(aboutItem)
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "退出", action: #selector(quit), keyEquivalent: "q"))
 
@@ -296,6 +300,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    @objc private func showAbout() {
+        let alert = NSAlert()
+        alert.messageText = "SnapMark"
+        alert.informativeText = AppVersion.aboutVersionText
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "知道了")
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
+    }
+
     @objc private func quit() {
         NSApplication.shared.terminate(nil)
     }
@@ -381,6 +395,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             regionMenuItem?.keyEquivalent = ""
             regionMenuItem?.keyEquivalentModifierMask = []
         }
+        aboutMenuItem?.title = "关于 \(AppVersion.aboutVersionText)"
     }
 
     private func statusToolTip(hotKey: String) -> String {

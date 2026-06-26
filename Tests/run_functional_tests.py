@@ -71,6 +71,7 @@ class FunctionalTestRunner:
             TestCase("SMK-P0-BUNDLE-002", "构建脚本包含稳定签名和资源打包", self.case_build_script),
             TestCase("SMK-P0-BUNDLE-005", "版本号遵循 1.<自动递增>.MMDD 规则", self.case_version_rule),
             TestCase("SMK-P0-BUNDLE-006", "编译完成后安装并重启新 app", self.case_build_restarts_app),
+            TestCase("SMK-P0-BUNDLE-007", "关于菜单显示版本号和构建时间", self.case_about_menu_build_info),
             TestCase("SMK-P0-ARCH-001", "截图相关模块已拆分且文件大小受控", self.case_module_size_budget),
             TestCase("SMK-P1-PLAN-001", "P1 功能规划已记录", self.case_p1_plan_recorded),
             TestCase("SMK-PSTAR-PLAN-001", "P* 功能规划已记录", self.case_pstar_plan_recorded),
@@ -497,12 +498,14 @@ class FunctionalTestRunner:
         self.require(plist.get("CFBundleIdentifier") == "dev.snapmark.app", "unexpected bundle identifier")
         self.require(plist.get("CFBundleIconFile") == "SnapMarkIcon", "bundle icon not configured")
         self.require(plist.get("LSUIElement") is True, "status bar app should be LSUIElement")
+        self.require(re.match(r"^\d{6}$", plist.get("SnapMarkBuildTime", "")) is not None, "build time should be HHMMSS")
 
     def case_build_script(self) -> None:
         build = self.read("Scripts/build_app.sh")
         install = self.read("Scripts/install_app.sh")
         for token in ["generate_icon_assets.py", "iconutil", "swift build -c release", "codesign", "SnapMarkIcon.icns", "StatusIcon.png"]:
             self.require(token in build, f"build script missing {token}")
+        self.require("SnapMarkBuildTime" in build and "date +%H%M%S" in build, "build script should write HHMMSS build time")
         self.require("/Applications/SnapMark.app" in install, "install script should prefer /Applications")
         self.require("--no-launch" in build, "build script should allow install script to avoid duplicate launches")
         self.require("--skip-build" in install, "install script should support launching an already built app")
@@ -525,16 +528,20 @@ class FunctionalTestRunner:
             "bump_app_version()",
             "next_minor=$((minor + 1))",
             "date +%m%d",
+            "date +%H%M%S",
             "CFBundleShortVersionString",
             "CFBundleVersion",
+            "SnapMarkBuildTime",
         ]:
             self.require(token in build, f"build script missing version rule token: {token}")
 
         with info_path.open("rb") as handle:
             source_plist = plistlib.load(handle)
         source_version = source_plist.get("CFBundleShortVersionString", "")
+        source_build_time = source_plist.get("SnapMarkBuildTime", "")
         pattern = rf"^{re.escape(major)}\.\d+\.\d{{4}}$"
         self.require(re.match(pattern, source_version) is not None, f"source version does not match {major}.<n>.MMDD: {source_version}")
+        self.require(re.match(r"^\d{6}$", source_build_time) is not None, f"source build time should be HHMMSS: {source_build_time}")
 
         if self.app:
             app_info = self.app / "Contents/Info.plist"
@@ -542,8 +549,11 @@ class FunctionalTestRunner:
                 app_plist = plistlib.load(handle)
             app_version = app_plist.get("CFBundleShortVersionString", "")
             app_build = app_plist.get("CFBundleVersion", "")
+            app_build_time = app_plist.get("SnapMarkBuildTime", "")
             self.require(re.match(pattern, app_version) is not None, f"app version does not match {major}.<n>.MMDD: {app_version}")
             self.require(app_build == app_version, "CFBundleVersion should match short version")
+            self.require(app_build_time == source_build_time, "app build time should match source Info.plist")
+            self.require(re.match(r"^\d{6}$", app_build_time) is not None, f"app build time should be HHMMSS: {app_build_time}")
             self.require(app_version.endswith(datetime.now().strftime(".%m%d")), f"app version should use today's MMDD: {app_version}")
             version_minor = int(app_version.split(".")[1])
             self.require(version_minor == minor, f"version state minor {minor} does not match app version {app_version}")
@@ -557,6 +567,25 @@ class FunctionalTestRunner:
         self.require("pkill -x SnapMark" in install, "install script must stop the old app before replacement")
         self.require("pgrep -x SnapMark" in install, "install script must verify old/new SnapMark process state")
         self.require("open \"${INSTALL_APP}\"" in install, "install script must open the freshly installed app")
+
+    def case_about_menu_build_info(self) -> None:
+        app = self.read("Sources/SnapMark/AppDelegate.swift")
+        version = self.read("Sources/SnapMark/AppVersion.swift")
+        build = self.read("Scripts/build_app.sh")
+        plist_path = self.require_file("Resources/Info.plist")
+
+        with plist_path.open("rb") as handle:
+            plist = plistlib.load(handle)
+
+        self.require("aboutMenuItem" in app, "about menu item missing")
+        self.require("\"关于 \\(AppVersion.aboutVersionText)\"" in app, "about menu title should include version and build time")
+        self.require("@objc private func showAbout()" in app, "about action missing")
+        self.require("alert.informativeText = AppVersion.aboutVersionText" in app, "about alert should show version and build time")
+        self.require("static var buildTime" in version, "build time accessor missing")
+        self.require("static var aboutVersionText" in version, "about version text missing")
+        self.require("SnapMarkBuildTime" in version, "app version should read bundle build time")
+        self.require("SnapMarkBuildTime" in build and "date +%H%M%S" in build, "build script should refresh build time")
+        self.require(re.match(r"^\d{6}$", plist.get("SnapMarkBuildTime", "")) is not None, "Info.plist build time should be HHMMSS")
 
     def case_module_size_budget(self) -> None:
         limits = {
@@ -610,6 +639,7 @@ class FunctionalTestRunner:
             "SMK-P0-SET-001",
             "SMK-P0-BUNDLE-005",
             "SMK-P0-BUNDLE-006",
+            "SMK-P0-BUNDLE-007",
         ]:
             self.require(case_id in test_plan, f"test plan missing {case_id}")
 

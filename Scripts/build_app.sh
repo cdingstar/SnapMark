@@ -27,8 +27,19 @@ read_version_value() {
   awk -F= -v key="${key}" '$1 == key { print $2 }' "${VERSION_FILE}" | tail -n 1
 }
 
+set_plist_string() {
+  local key="$1"
+  local value="$2"
+
+  if "${PLIST_BUDDY}" -c "Print :${key}" "${INFO_PLIST}" >/dev/null 2>&1; then
+    "${PLIST_BUDDY}" -c "Set :${key} ${value}" "${INFO_PLIST}"
+  else
+    "${PLIST_BUDDY}" -c "Add :${key} string ${value}" "${INFO_PLIST}"
+  fi
+}
+
 bump_app_version() {
-  local major minor next_minor mmdd version tmp
+  local major minor next_minor mmdd build_time version tmp
 
   if [[ ! -f "${VERSION_FILE}" ]]; then
     printf 'SNAPMARK_MAJOR=1\nSNAPMARK_MINOR=0\n' >"${VERSION_FILE}"
@@ -49,14 +60,16 @@ bump_app_version() {
 
   next_minor=$((minor + 1))
   mmdd="$(date +%m%d)"
+  build_time="$(date +%H%M%S)"
   version="${major}.${next_minor}.${mmdd}"
 
   tmp="$(mktemp "${VERSION_FILE}.XXXXXX")"
   printf 'SNAPMARK_MAJOR=%s\nSNAPMARK_MINOR=%s\n' "${major}" "${next_minor}" >"${tmp}"
   mv "${tmp}" "${VERSION_FILE}"
 
-  "${PLIST_BUDDY}" -c "Set :CFBundleShortVersionString ${version}" "${INFO_PLIST}"
-  "${PLIST_BUDDY}" -c "Set :CFBundleVersion ${version}" "${INFO_PLIST}"
+  set_plist_string "CFBundleShortVersionString" "${version}"
+  set_plist_string "CFBundleVersion" "${version}"
+  set_plist_string "SnapMarkBuildTime" "${build_time}"
 
   printf '%s' "${version}"
 }
