@@ -50,6 +50,8 @@ enum ImageRenderer {
                 drawMosaic(annotation, over: baseImage, canvasRect: canvasRect, isPreview: isPreview)
             case .magnifier:
                 drawMagnifier(annotation, over: baseImage, canvasRect: canvasRect, isPreview: isPreview)
+            case .eraser:
+                drawEraser(annotation, over: baseImage, canvasRect: canvasRect, isPreview: isPreview)
             }
         }
     }
@@ -176,5 +178,75 @@ enum ImageRenderer {
         let inner = NSBezierPath(ovalIn: lensRect.insetBy(dx: 5, dy: 5))
         inner.lineWidth = 1.5
         inner.stroke()
+    }
+
+    private static func drawEraser(_ annotation: Annotation, over baseImage: NSImage, canvasRect: CGRect, isPreview: Bool) {
+        let points = annotation.points.isEmpty ? [annotation.start, annotation.end] : annotation.points
+        guard let firstPoint = points.first, let context = NSGraphicsContext.current?.cgContext else { return }
+
+        let lineWidth = max(1, annotation.lineWidth)
+        let isSinglePoint = points.count == 1 || (points.last.map { $0 == firstPoint } ?? false)
+        context.saveGState()
+
+        if isSinglePoint {
+            context.addEllipse(in: CGRect(
+                x: firstPoint.x - lineWidth / 2,
+                y: firstPoint.y - lineWidth / 2,
+                width: lineWidth,
+                height: lineWidth
+            ))
+        } else {
+            let path = CGMutablePath()
+            path.move(to: firstPoint)
+            for point in points.dropFirst() {
+                path.addLine(to: point)
+            }
+            context.addPath(path)
+            context.setLineWidth(lineWidth)
+            context.setLineCap(.round)
+            context.setLineJoin(.round)
+            context.replacePathWithStrokedPath()
+        }
+
+        context.clip()
+        baseImage.draw(in: canvasRect, from: .zero, operation: .copy, fraction: isPreview ? 0.78 : 1)
+        context.restoreGState()
+
+        if isPreview {
+            drawEraserPreview(points: points, lineWidth: lineWidth)
+        }
+    }
+
+    private static func drawEraserPreview(points: [CGPoint], lineWidth: CGFloat) {
+        guard let firstPoint = points.first else { return }
+
+        let isSinglePoint = points.count == 1 || (points.last.map { $0 == firstPoint } ?? false)
+        if isSinglePoint {
+            let rect = CGRect(
+                x: firstPoint.x - lineWidth / 2,
+                y: firstPoint.y - lineWidth / 2,
+                width: lineWidth,
+                height: lineWidth
+            )
+            NSColor.white.withAlphaComponent(0.85).setStroke()
+            NSBezierPath(ovalIn: rect).stroke()
+            return
+        }
+
+        let path = NSBezierPath()
+        path.lineWidth = max(1, lineWidth)
+        path.lineCapStyle = .round
+        path.lineJoinStyle = .round
+        path.move(to: firstPoint)
+
+        for point in points.dropFirst() {
+            path.line(to: point)
+        }
+
+        NSColor.white.withAlphaComponent(0.85).setStroke()
+        path.stroke()
+        NSColor.black.withAlphaComponent(0.35).setStroke()
+        path.lineWidth = max(1, lineWidth - 2)
+        path.stroke()
     }
 }

@@ -1,11 +1,12 @@
 import AppKit
 
 final class EditorWindowController: NSWindowController, NSWindowDelegate, NSToolbarDelegate {
-    private static let minimumToolbarWindowWidth: CGFloat = 1040
+    private static let minimumToolbarWindowWidth: CGFloat = 1160
     private static let minimumWindowHeight: CGFloat = 360
     private static let imageSizeToolbarWidth: CGFloat = 112
-    private static let toolsToolbarWidth: CGFloat = 286
-    private static let zoomToolbarWidth: CGFloat = 156
+    private static let toolsToolbarWidth: CGFloat = 354
+    private static let eraserSizeToolbarWidth: CGFloat = 84
+    private static let zoomToolbarWidth: CGFloat = 104
     private static let dragCopyToolbarWidth: CGFloat = 28
 
     var onClose: (() -> Void)?
@@ -17,9 +18,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     private var shouldSaveOnClose = true
     private let imagePixelSize: CGSize
     private let imageSizeLabel = NSTextField(labelWithString: "")
+    private let zoomInfoLabel = NSTextField(labelWithString: "")
     private var toolControl: NSSegmentedControl?
+    private var eraserSizeControl: NSSegmentedControl?
     private var zoomSlider: NSSlider?
-    private var zoomLabel: NSTextField?
 
     init(image: NSImage) {
         imagePixelSize = image.snapMarkPixelSize
@@ -145,6 +147,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             .imageSize,
             .flexibleSpace,
             .tools,
+            .eraserSize,
             .fitZoom,
             .zoom,
             .undo,
@@ -161,13 +164,24 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             item.label = "尺寸"
             item.paletteLabel = "尺寸"
             item.toolTip = "截图尺寸"
+            zoomInfoLabel.stringValue = Self.formatZoom(canvasView.zoomScale)
+            zoomInfoLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
+            zoomInfoLabel.textColor = .secondaryLabelColor
+            zoomInfoLabel.alignment = .left
+            zoomInfoLabel.setContentHuggingPriority(.required, for: .horizontal)
+            zoomInfoLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+
             imageSizeLabel.stringValue = Self.formatImageSize(imagePixelSize)
-            imageSizeLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
-            imageSizeLabel.textColor = .secondaryLabelColor
+            imageSizeLabel.font = .monospacedDigitSystemFont(ofSize: 10, weight: .regular)
+            imageSizeLabel.textColor = .tertiaryLabelColor
             imageSizeLabel.alignment = .left
-            imageSizeLabel.setContentHuggingPriority(.required, for: .horizontal)
-            imageSizeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
-            item.view = imageSizeLabel
+
+            let stack = NSStackView(views: [zoomInfoLabel, imageSizeLabel])
+            stack.orientation = .vertical
+            stack.alignment = .leading
+            stack.spacing = 0
+            stack.translatesAutoresizingMaskIntoConstraints = false
+            item.view = stack
             lockToolbarItem(item, width: Self.imageSizeToolbarWidth)
             return item
 
@@ -189,9 +203,35 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             control.setWidth(48, forSegment: AnnotationTool.text.rawValue)
             control.setWidth(62, forSegment: AnnotationTool.mosaic.rawValue)
             control.setWidth(62, forSegment: AnnotationTool.magnifier.rawValue)
+            control.setWidth(68, forSegment: AnnotationTool.eraser.rawValue)
             item.view = control
             lockToolbarItem(item, width: Self.toolsToolbarWidth)
             toolControl = control
+            updateToolOptions()
+            return item
+
+        case .eraserSize:
+            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.label = "擦除大小"
+            item.paletteLabel = "擦除大小"
+            item.toolTip = "擦除大小"
+
+            let control = NSSegmentedControl(
+                labels: EraserSize.allCases.map(\.title),
+                trackingMode: .selectOne,
+                target: self,
+                action: #selector(changeEraserSize)
+            )
+            control.controlSize = .small
+            control.segmentStyle = .texturedRounded
+            control.selectedSegment = canvasView.eraserSize.rawValue
+            EraserSize.allCases.forEach { size in
+                control.setWidth(24, forSegment: size.rawValue)
+            }
+            item.view = control
+            lockToolbarItem(item, width: Self.eraserSizeToolbarWidth)
+            eraserSizeControl = control
+            updateToolOptions()
             return item
 
         case .fitZoom:
@@ -207,12 +247,6 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             item.label = "缩放"
             item.paletteLabel = "缩放"
 
-            let label = NSTextField(labelWithString: "")
-            label.alignment = .right
-            label.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
-            label.textColor = .secondaryLabelColor
-            label.widthAnchor.constraint(equalToConstant: 48).isActive = true
-
             let slider = NSSlider(
                 value: Double(canvasView.zoomScale),
                 minValue: Double(EditorCanvasView.minimumZoomScale),
@@ -221,17 +255,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
                 action: #selector(changeZoom)
             )
             slider.controlSize = .small
-            slider.widthAnchor.constraint(equalToConstant: 104).isActive = true
-
-            let stack = NSStackView(views: [label, slider])
-            stack.orientation = .horizontal
-            stack.alignment = .centerY
-            stack.spacing = 6
-            stack.translatesAutoresizingMaskIntoConstraints = false
-
-            item.view = stack
+            item.view = slider
             lockToolbarItem(item, width: Self.zoomToolbarWidth)
-            zoomLabel = label
             zoomSlider = slider
             updateZoomUI()
             return item
@@ -285,6 +310,12 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     @objc private func changeTool(_ sender: NSSegmentedControl) {
         guard let tool = AnnotationTool(rawValue: sender.selectedSegment) else { return }
         canvasView.currentTool = tool
+        updateToolOptions()
+    }
+
+    @objc private func changeEraserSize(_ sender: NSSegmentedControl) {
+        guard let size = EraserSize(rawValue: sender.selectedSegment) else { return }
+        canvasView.eraserSize = size
     }
 
     @objc private func fitZoom() {
@@ -362,11 +393,19 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
 
     private func updateZoomUI() {
         zoomSlider?.doubleValue = Double(canvasView.zoomScale)
-        zoomLabel?.stringValue = "\(Int((canvasView.zoomScale * 100).rounded()))%"
+        zoomInfoLabel.stringValue = Self.formatZoom(canvasView.zoomScale)
+    }
+
+    private func updateToolOptions() {
+        eraserSizeControl?.isEnabled = canvasView.currentTool == .eraser
     }
 
     private static func formatImageSize(_ size: CGSize) -> String {
         "\(Int(size.width.rounded())) x \(Int(size.height.rounded())) px"
+    }
+
+    private static func formatZoom(_ scale: CGFloat) -> String {
+        "\(Int((scale * 100).rounded()))%"
     }
 
     private func toolbarButton(identifier: NSToolbarItem.Identifier, label: String, symbolName: String, action: Selector) -> NSToolbarItem {
@@ -390,6 +429,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
 private extension NSToolbarItem.Identifier {
     static let imageSize = NSToolbarItem.Identifier("SnapMark.ImageSize")
     static let tools = NSToolbarItem.Identifier("SnapMark.Tools")
+    static let eraserSize = NSToolbarItem.Identifier("SnapMark.EraserSize")
     static let fitZoom = NSToolbarItem.Identifier("SnapMark.FitZoom")
     static let zoom = NSToolbarItem.Identifier("SnapMark.Zoom")
     static let undo = NSToolbarItem.Identifier("SnapMark.Undo")

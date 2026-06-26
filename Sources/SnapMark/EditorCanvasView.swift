@@ -8,6 +8,7 @@ final class EditorCanvasView: NSView {
     var onAnnotationsChanged: (() -> Void)?
     var onResetRequested: (() -> Void)?
     private(set) var zoomScale: CGFloat = 1
+    var eraserSize: EraserSize = .medium
 
     var currentTool: AnnotationTool = .arrow {
         didSet {
@@ -24,6 +25,7 @@ final class EditorCanvasView: NSView {
 
     private var dragStart: CGPoint?
     private var dragCurrent: CGPoint?
+    private var dragPoints: [CGPoint] = []
     private var viewportSize = CGSize(width: 560, height: 360)
     private var panStartInWindow: CGPoint?
     private var panStartBoundsOrigin: CGPoint?
@@ -90,6 +92,7 @@ final class EditorCanvasView: NSView {
         guard let point = imagePoint(from: convert(event.locationInWindow, from: nil)) else { return }
         dragStart = point
         dragCurrent = point
+        dragPoints = [point]
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -103,6 +106,9 @@ final class EditorCanvasView: NSView {
 
         guard dragStart != nil, let point = imagePoint(from: convert(event.locationInWindow, from: nil)) else { return }
         dragCurrent = point
+        if currentTool == .eraser {
+            dragPoints.append(point)
+        }
         needsDisplay = true
     }
 
@@ -115,11 +121,18 @@ final class EditorCanvasView: NSView {
         guard let start = dragStart else { return }
 
         let end = imagePoint(from: convert(event.locationInWindow, from: nil)) ?? start
+        let points = finalizedDragPoints(endingAt: end)
         dragStart = nil
         dragCurrent = nil
+        dragPoints.removeAll()
 
         var annotation = Annotation(tool: currentTool, start: start, end: end)
-        normalizeMinimumSize(&annotation)
+        if currentTool == .eraser {
+            annotation.points = points
+            annotation.lineWidth = eraserSize.lineWidth
+        } else {
+            normalizeMinimumSize(&annotation)
+        }
 
         if currentTool == .text {
             guard let text = promptForText(), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -211,11 +224,25 @@ final class EditorCanvasView: NSView {
     private var previewAnnotation: Annotation? {
         guard let start = dragStart, let current = dragCurrent else { return nil }
         var annotation = Annotation(tool: currentTool, start: start, end: current)
+        if currentTool == .eraser {
+            annotation.points = finalizedDragPoints(endingAt: current)
+            annotation.lineWidth = eraserSize.lineWidth
+            return annotation
+        }
+
         normalizeMinimumSize(&annotation)
         if currentTool == .text {
             annotation.text = "Text"
         }
         return annotation
+    }
+
+    private func finalizedDragPoints(endingAt end: CGPoint) -> [CGPoint] {
+        var points = dragPoints
+        if points.last.map({ $0 != end }) ?? true {
+            points.append(end)
+        }
+        return points
     }
 
     private var canvasRect: CGRect {

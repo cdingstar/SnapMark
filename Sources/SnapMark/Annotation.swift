@@ -6,6 +6,7 @@ enum AnnotationTool: Int, CaseIterable {
     case text
     case mosaic
     case magnifier
+    case eraser
 
     var title: String {
         switch self {
@@ -19,6 +20,8 @@ enum AnnotationTool: Int, CaseIterable {
             return "Mosaic"
         case .magnifier:
             return "Lens"
+        case .eraser:
+            return "Eraser"
         }
     }
 
@@ -34,6 +37,36 @@ enum AnnotationTool: Int, CaseIterable {
             return "checkerboard.rectangle"
         case .magnifier:
             return "plus.magnifyingglass"
+        case .eraser:
+            return "eraser"
+        }
+    }
+}
+
+enum EraserSize: Int, CaseIterable {
+    case small
+    case medium
+    case large
+
+    var title: String {
+        switch self {
+        case .small:
+            return "S"
+        case .medium:
+            return "M"
+        case .large:
+            return "L"
+        }
+    }
+
+    var lineWidth: CGFloat {
+        switch self {
+        case .small:
+            return 8
+        case .medium:
+            return 16
+        case .large:
+            return 32
         }
     }
 }
@@ -46,6 +79,7 @@ struct Annotation: Identifiable {
     var text: String = ""
     var color: NSColor = .systemRed
     var lineWidth: CGFloat = 4
+    var points: [CGPoint] = []
 
     var rect: CGRect {
         CGRect(

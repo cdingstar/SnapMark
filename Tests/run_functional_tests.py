@@ -55,6 +55,7 @@ class FunctionalTestRunner:
             TestCase("SMK-P0-SHOT-012", "半像素垂直边界通过外包截图和像素裁剪保持一致", self.case_region_half_pixel_capture_crop),
             TestCase("SMK-P0-MAG-001", "截图选择放大镜为 5x 像素化放大并扩大视野", self.case_selection_magnifier),
             TestCase("SMK-P0-ANN-001", "编辑器标注工具覆盖箭头/矩形/文字/马赛克/放大镜", self.case_annotation_tools),
+            TestCase("SMK-P0-ANN-003", "编辑器橡皮擦支持 S/M/L 不同大小", self.case_eraser_tool_sizes),
             TestCase("SMK-P0-EDITOR-001", "编辑器使用棋盘底、居中显示、缩放和平移", self.case_editor_checkerboard_zoom_pan),
             TestCase("SMK-P0-EDITOR-002", "编辑器缩放不影响保存/复制输出像素", self.case_editor_export_independent_from_zoom),
             TestCase("SMK-P0-EDITOR-003", "编辑器标注坐标按缩放反算到图片像素", self.case_editor_annotation_coordinate_mapping),
@@ -308,10 +309,29 @@ class FunctionalTestRunner:
     def case_annotation_tools(self) -> None:
         annotation = self.read("Sources/SnapMark/Annotation.swift")
         renderer = self.read("Sources/SnapMark/ImageRenderer.swift")
-        for token in ["case arrow", "case rectangle", "case text", "case mosaic", "case magnifier"]:
+        for token in ["case arrow", "case rectangle", "case text", "case mosaic", "case magnifier", "case eraser"]:
             self.require(token in annotation, f"missing annotation tool: {token}")
-        for draw_fn in ["drawArrow", "drawRectangle", "drawText", "drawMosaic", "drawMagnifier"]:
+        for draw_fn in ["drawArrow", "drawRectangle", "drawText", "drawMosaic", "drawMagnifier", "drawEraser"]:
             self.require(draw_fn in renderer, f"missing renderer: {draw_fn}")
+
+    def case_eraser_tool_sizes(self) -> None:
+        annotation = self.read("Sources/SnapMark/Annotation.swift")
+        canvas = self.read("Sources/SnapMark/EditorCanvasView.swift")
+        renderer = self.read("Sources/SnapMark/ImageRenderer.swift")
+        editor = self.read("Sources/SnapMark/EditorWindowController.swift")
+
+        for token in ["enum EraserSize", "case small", "case medium", "case large", "return 8", "return 16", "return 32"]:
+            self.require(token in annotation, f"eraser size missing token: {token}")
+        self.require("var points: [CGPoint]" in annotation, "eraser must store freehand points")
+        self.require("var eraserSize: EraserSize = .medium" in canvas, "canvas eraser size state missing")
+        self.require("currentTool == .eraser" in canvas, "canvas must branch for eraser")
+        self.require("annotation.points = points" in canvas, "eraser annotation should keep the drag path")
+        self.require("annotation.lineWidth = eraserSize.lineWidth" in canvas, "eraser line width should use selected size")
+        self.require("replacePathWithStrokedPath" in renderer, "eraser renderer should clip to a stroked path")
+        self.require("baseImage.draw(in: canvasRect" in renderer, "eraser should restore the base image")
+        self.require("eraserSizeControl" in editor, "toolbar eraser size control missing")
+        self.require("EraserSize.allCases.map(\\.title)" in editor, "toolbar should expose S/M/L eraser sizes")
+        self.require("changeEraserSize" in editor, "eraser size action missing")
 
     def case_editor_checkerboard_zoom_pan(self) -> None:
         canvas = self.read("Sources/SnapMark/EditorCanvasView.swift")
@@ -334,9 +354,12 @@ class FunctionalTestRunner:
             "EditorCanvasView.maximumZoomScale",
             "fitZoom",
             "imageSizeLabel.stringValue = Self.formatImageSize(imagePixelSize)",
+            "zoomInfoLabel.stringValue = Self.formatZoom(canvasView.zoomScale)",
+            "NSStackView(views: [zoomInfoLabel, imageSizeLabel])",
+            "stack.orientation = .vertical",
             "window.title = \"SnapMark\"",
             "window.minSize = Self.minimumWindowSize()",
-            "minimumToolbarWindowWidth: CGFloat = 1040",
+            "minimumToolbarWindowWidth: CGFloat = 1160",
             "lockToolbarItem(item, width: Self.toolsToolbarWidth)",
             "toolbar.displayMode = .iconOnly",
             "toolbar.sizeMode = .small",
@@ -348,13 +371,16 @@ class FunctionalTestRunner:
         self.require("lockToolbarItem(item, width: Self.imageSizeToolbarWidth)" in editor, "image size toolbar item should have a stable width")
         self.require("lockToolbarItem(item, width: Self.zoomToolbarWidth)" in editor, "zoom toolbar item should have a stable width")
         self.require("lockToolbarItem(item, width: Self.dragCopyToolbarWidth)" in editor, "drag toolbar item should have a stable width")
+        self.require("let stack = NSStackView(views: [label, slider])" not in editor, "toolbar buttons should not be split into a second row")
         default_items = re.search(r"func toolbarDefaultItemIdentifiers\(_ toolbar: NSToolbar\) -> \[NSToolbarItem.Identifier\] \{\n        \[\n(?P<body>.*?)\n        \]\n    \}", editor, re.DOTALL)
         self.require(default_items is not None, "toolbar default items missing")
         assert default_items is not None
         item_body = default_items.group("body")
         self.require(item_body.count(".flexibleSpace") == 1, "toolbar should use one flexible space for right alignment")
         self.require(item_body.index(".imageSize") < item_body.index(".flexibleSpace") < item_body.index(".tools"), "toolbar controls should be right aligned after image size")
+        self.require(item_body.index(".tools") < item_body.index(".eraserSize") < item_body.index(".fitZoom"), "eraser size control should stay in the single-row tool group")
         self.require("formatImageSize(_ size: CGSize)" in editor and "x \\(Int(size.height.rounded())) px" in editor, "editor must format screenshot dimensions")
+        self.require("formatZoom(_ scale: CGFloat)" in editor, "editor must format zoom in the stacked info block")
 
     def case_editor_export_independent_from_zoom(self) -> None:
         canvas = self.read("Sources/SnapMark/EditorCanvasView.swift")
@@ -633,6 +659,7 @@ class FunctionalTestRunner:
             "SMK-P0-SHOT-012",
             "SMK-P0-MAG-001",
             "SMK-P0-ANN-001",
+            "SMK-P0-ANN-003",
             "SMK-P0-EDITOR-001",
             "SMK-P0-EDITOR-002",
             "SMK-P0-EDITOR-003",
