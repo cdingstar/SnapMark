@@ -335,9 +335,14 @@ class FunctionalTestRunner:
         self.require("replacePathWithStrokedPath" in renderer, "eraser renderer should clip to a stroked path")
         self.require("eraserBackgroundColor(isPreview:" in renderer, "eraser should use the configured background color")
         self.require("NSColor.white.withAlphaComponent" in renderer, "eraser background should default to white")
-        self.require("eraserSizeControl" in editor, "toolbar eraser size control missing")
-        self.require("EraserSize.allCases.map(\\.title)" in editor, "toolbar should expose S/M/L eraser sizes")
-        self.require("changeEraserSize" in editor, "eraser size action missing")
+        self.require("private var eraserSizeMenu: NSMenu?" in editor, "toolbar eraser size menu missing")
+        self.require("control.setMenu(makeEraserSizeMenu(), forSegment: AnnotationTool.eraser.rawValue)" in editor, "eraser segment should own the size menu")
+        self.require("control.setShowsMenuIndicator(true, forSegment: AnnotationTool.eraser.rawValue)" in editor, "eraser segment should show a menu indicator")
+        self.require("updateEraserSegmentTitle()" in editor, "eraser segment should display the current size")
+        self.require("@objc private func chooseEraserSize(_ sender: NSMenuItem)" in editor, "eraser size menu action missing")
+        self.require("cycleEraserSize()" in editor, "clicking active eraser should cycle S/M/L")
+        self.require("eraserSizeControl" not in editor, "standalone S/M/L toolbar control should be removed")
+        self.require("SnapMark.EraserSize" not in editor, "standalone eraser toolbar identifier should be removed")
 
         expected_sizes = {"small": 8, "medium": 16, "large": 32}
         self.require(expected_sizes["small"] < expected_sizes["medium"] < expected_sizes["large"], "eraser fixture sizes should increase")
@@ -517,7 +522,7 @@ class FunctionalTestRunner:
             "stack.orientation = .horizontal",
             "window.title = \"SnapMark\"",
             "window.minSize = Self.minimumWindowSize()",
-            "minimumToolbarWindowWidth: CGFloat = 1210",
+            "minimumToolbarWindowWidth: CGFloat = 1130",
             "lockToolbarItem(item, width: Self.toolsToolbarWidth)",
             "toolbar.displayMode = .iconOnly",
             "toolbar.sizeMode = .small",
@@ -537,7 +542,8 @@ class FunctionalTestRunner:
         item_body = default_items.group("body")
         self.require(item_body.count(".flexibleSpace") == 1, "toolbar should use one flexible space for right alignment")
         self.require(item_body.index(".imageSize") < item_body.index(".flexibleSpace") < item_body.index(".tools"), "toolbar controls should be right aligned after image size")
-        self.require(item_body.index(".tools") < item_body.index(".color") < item_body.index(".eraserSize") < item_body.index(".fitZoom"), "color and eraser controls should stay in the single-row tool group")
+        self.require(".eraserSize" not in item_body, "eraser size should not reserve a standalone toolbar item")
+        self.require(item_body.index(".tools") < item_body.index(".color") < item_body.index(".fitZoom"), "color and actions should stay in the single-row tool group")
         self.require(".zoom" not in item_body, "zoom slider should not occupy right-side toolbar space")
         self.require("formatImageSize(_ size: CGSize)" in editor and "x \\(Int(size.height.rounded())) px" in editor, "editor must format screenshot dimensions")
         self.require("formatZoom(_ scale: CGFloat)" in editor, "editor must format zoom in the stacked info block")
@@ -559,11 +565,12 @@ class FunctionalTestRunner:
         self.require(default_items is not None, "toolbar default items missing")
         assert default_items is not None
         item_body = default_items.group("body")
-        for item in [".tools", ".color", ".eraserSize", ".fitZoom", ".undo", ".copy", ".save", ".dragCopy"]:
+        for item in [".tools", ".color", ".fitZoom", ".undo", ".copy", ".save", ".dragCopy"]:
             self.require(item in item_body, f"toolbar single-row item missing {item}")
+        self.require(".eraserSize" not in item_body, "eraser size should be folded into the eraser tool segment")
         self.require(".zoom" not in item_body, "zoom slider should not be a right-side toolbar item")
         self.require(item_body.index(".flexibleSpace") < item_body.index(".tools"), "tool controls should stay to the right of flexible space")
-        self.require(item_body.index(".tools") < item_body.index(".color") < item_body.index(".eraserSize") < item_body.index(".fitZoom"), "color, eraser size and actions should remain in the right-side single row")
+        self.require(item_body.index(".tools") < item_body.index(".color") < item_body.index(".fitZoom"), "color and actions should remain in the right-side single row")
 
         fit_zoom = 0.625
         formatted_zoom = f"{self.round_away(fit_zoom * 100)}%"

@@ -1,12 +1,11 @@
 import AppKit
 
-final class EditorWindowController: NSWindowController, NSWindowDelegate, NSToolbarDelegate {
-    private static let minimumToolbarWindowWidth: CGFloat = 1210
+final class EditorWindowController: NSWindowController, NSWindowDelegate, NSToolbarDelegate, NSMenuDelegate {
+    private static let minimumToolbarWindowWidth: CGFloat = 1130
     private static let minimumWindowHeight: CGFloat = 360
     private static let imageSizeToolbarWidth: CGFloat = 220
-    private static let toolsToolbarWidth: CGFloat = 354
+    private static let toolsToolbarWidth: CGFloat = 366
     private static let colorToolbarWidth: CGFloat = 48
-    private static let eraserSizeToolbarWidth: CGFloat = 84
     private static let dragCopyToolbarWidth: CGFloat = 28
 
     var onClose: (() -> Void)?
@@ -21,7 +20,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     private let zoomInfoLabel = NSTextField(labelWithString: "")
     private var toolControl: NSSegmentedControl?
     private var annotationColorWell: NSColorWell?
-    private var eraserSizeControl: NSSegmentedControl?
+    private var eraserSizeMenu: NSMenu?
     private var zoomSlider: NSSlider?
 
     init(image: NSImage) {
@@ -149,7 +148,6 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             .flexibleSpace,
             .tools,
             .color,
-            .eraserSize,
             .fitZoom,
             .undo,
             .copy,
@@ -221,10 +219,13 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             control.setWidth(48, forSegment: AnnotationTool.text.rawValue)
             control.setWidth(62, forSegment: AnnotationTool.mosaic.rawValue)
             control.setWidth(62, forSegment: AnnotationTool.magnifier.rawValue)
-            control.setWidth(68, forSegment: AnnotationTool.eraser.rawValue)
+            control.setWidth(88, forSegment: AnnotationTool.eraser.rawValue)
+            control.setMenu(makeEraserSizeMenu(), forSegment: AnnotationTool.eraser.rawValue)
+            control.setShowsMenuIndicator(true, forSegment: AnnotationTool.eraser.rawValue)
             item.view = control
             lockToolbarItem(item, width: Self.toolsToolbarWidth)
             toolControl = control
+            updateEraserSegmentTitle()
             updateToolOptions()
             return item
 
@@ -242,30 +243,6 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             item.view = colorWell
             lockToolbarItem(item, width: Self.colorToolbarWidth)
             annotationColorWell = colorWell
-            return item
-
-        case .eraserSize:
-            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = "擦除大小"
-            item.paletteLabel = "擦除大小"
-            item.toolTip = "擦除大小"
-
-            let control = NSSegmentedControl(
-                labels: EraserSize.allCases.map(\.title),
-                trackingMode: .selectOne,
-                target: self,
-                action: #selector(changeEraserSize)
-            )
-            control.controlSize = .small
-            control.segmentStyle = .texturedRounded
-            control.selectedSegment = canvasView.eraserSize.rawValue
-            EraserSize.allCases.forEach { size in
-                control.setWidth(24, forSegment: size.rawValue)
-            }
-            item.view = control
-            lockToolbarItem(item, width: Self.eraserSizeToolbarWidth)
-            eraserSizeControl = control
-            updateToolOptions()
             return item
 
         case .fitZoom:
@@ -324,6 +301,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
 
     @objc private func changeTool(_ sender: NSSegmentedControl) {
         guard let tool = AnnotationTool(rawValue: sender.selectedSegment) else { return }
+        if tool == .eraser, canvasView.currentTool == .eraser {
+            cycleEraserSize()
+        }
         canvasView.currentTool = tool
         updateToolOptions()
     }
@@ -332,9 +312,13 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         canvasView.annotationColor = sender.color
     }
 
-    @objc private func changeEraserSize(_ sender: NSSegmentedControl) {
-        guard let size = EraserSize(rawValue: sender.selectedSegment) else { return }
+    @objc private func chooseEraserSize(_ sender: NSMenuItem) {
+        guard let size = EraserSize(rawValue: sender.tag) else { return }
         canvasView.eraserSize = size
+        canvasView.currentTool = .eraser
+        toolControl?.selectedSegment = AnnotationTool.eraser.rawValue
+        updateEraserSegmentTitle()
+        updateToolOptions()
     }
 
     @objc private func fitZoom() {
@@ -416,8 +400,45 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     }
 
     private func updateToolOptions() {
-        eraserSizeControl?.isEnabled = canvasView.currentTool == .eraser
         annotationColorWell?.isEnabled = canvasView.currentTool != .eraser
+        updateEraserSegmentTitle()
+        updateEraserSizeMenuState()
+    }
+
+    private func makeEraserSizeMenu() -> NSMenu {
+        let menu = NSMenu(title: "擦除大小")
+        menu.delegate = self
+        for size in EraserSize.allCases {
+            let item = NSMenuItem(title: "Eraser \(size.title)", action: #selector(chooseEraserSize), keyEquivalent: "")
+            item.target = self
+            item.tag = size.rawValue
+            menu.addItem(item)
+        }
+        eraserSizeMenu = menu
+        updateEraserSizeMenuState()
+        return menu
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        if menu == eraserSizeMenu {
+            updateEraserSizeMenuState()
+        }
+    }
+
+    private func updateEraserSegmentTitle() {
+        toolControl?.setLabel("Eraser \(canvasView.eraserSize.title)", forSegment: AnnotationTool.eraser.rawValue)
+    }
+
+    private func updateEraserSizeMenuState() {
+        eraserSizeMenu?.items.forEach { item in
+            item.state = item.tag == canvasView.eraserSize.rawValue ? .on : .off
+        }
+    }
+
+    private func cycleEraserSize() {
+        let sizes = EraserSize.allCases
+        guard let index = sizes.firstIndex(of: canvasView.eraserSize) else { return }
+        canvasView.eraserSize = sizes[(index + 1) % sizes.count]
     }
 
     private static func formatImageSize(_ size: CGSize) -> String {
@@ -450,7 +471,6 @@ private extension NSToolbarItem.Identifier {
     static let imageSize = NSToolbarItem.Identifier("SnapMark.ImageSize")
     static let tools = NSToolbarItem.Identifier("SnapMark.Tools")
     static let color = NSToolbarItem.Identifier("SnapMark.Color")
-    static let eraserSize = NSToolbarItem.Identifier("SnapMark.EraserSize")
     static let fitZoom = NSToolbarItem.Identifier("SnapMark.FitZoom")
     static let undo = NSToolbarItem.Identifier("SnapMark.Undo")
     static let copy = NSToolbarItem.Identifier("SnapMark.Copy")
