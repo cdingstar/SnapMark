@@ -36,6 +36,7 @@ Scripts/test.sh --skip-build --app dist/SnapMark.app
 | SMK-P0-SHOT-008 | 自动 | 截图内容 | 实际截图输出尺寸必须与选择区域换算后的像素尺寸一致，避免选区和结果尺寸不一致。 |
 | SMK-P0-SHOT-009 | 自动 | 选区提示 | 选择框尺寸提示显示实际像素 `px`，不是 AppKit point。 |
 | SMK-P0-SHOT-010 | 自动 | 坐标面板 | 选区时显示 `local -> screen -> capture -> pixel` 坐标转换、缩放倍率和最终 region，便于确认选择区域与实际截图严格一致。 |
+| SMK-P0-SHOT-011 | 自动 | 四方向坐标 | 从左上到右下、右下到左上、右上到左下、左下到右上拖拽时，最终截图像素区域一致，且起点不会向左上多扩 1～2px。 |
 
 ## P0 放大镜
 

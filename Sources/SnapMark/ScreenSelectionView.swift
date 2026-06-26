@@ -208,13 +208,23 @@ final class ScreenSelectionView: NSView {
     }
 
     private func drawSizeLabel(for rect: CGRect) {
-        let scale = max(1, window?.screen?.backingScaleFactor ?? 1)
-        let text = "\(Int((rect.width * scale).rounded())) x \(Int((rect.height * scale).rounded())) px"
+        let text = selectionPixelSizeText(for: rect)
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium),
             .foregroundColor: NSColor.white
         ]
         drawLabel(text, attributes: attributes, preferredOrigin: CGPoint(x: rect.minX, y: rect.minY - 30))
+    }
+
+    private func selectionPixelSizeText(for rect: CGRect) -> String {
+        guard let window, let screen = window.screen else {
+            return "\(Int(rect.width.rounded())) x \(Int(rect.height.rounded())) px"
+        }
+        let screenRect = window.convertToScreen(rect)
+        guard let region = ScreenCaptureRegion(appKitRect: screenRect, screen: screen) else {
+            return "\(Int(rect.width.rounded())) x \(Int(rect.height.rounded())) px"
+        }
+        return "\(Int(region.pixelSize.width)) x \(Int(region.pixelSize.height)) px"
     }
 
     private func drawLabel(_ text: String, attributes: [NSAttributedString.Key: Any], preferredOrigin: CGPoint) {

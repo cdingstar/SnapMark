@@ -12,9 +12,17 @@ struct ScreenCaptureRegion: Equatable {
         guard let screen = preferredScreen ?? Self.bestScreen(for: rawRect) else { return nil }
 
         backingScaleFactor = max(1, screen.backingScaleFactor)
-        appKitRect = Self.pixelAligned(rawRect.standardized, scale: backingScaleFactor)
-        coreGraphicsRect = Self.coreGraphicsRect(from: appKitRect, on: screen)
-        pixelSize = Self.pixelSize(for: appKitRect, scale: backingScaleFactor)
+        let displayBounds = Self.coreGraphicsDisplayBounds(for: screen)
+        let snappedCoreGraphicsRect = Self.pixelSnapped(
+            Self.coreGraphicsRect(from: rawRect.standardized, on: screen),
+            displayBounds: displayBounds,
+            scale: backingScaleFactor
+        )
+        guard snappedCoreGraphicsRect.width > 0, snappedCoreGraphicsRect.height > 0 else { return nil }
+
+        coreGraphicsRect = snappedCoreGraphicsRect
+        appKitRect = Self.appKitRect(from: snappedCoreGraphicsRect, displayBounds: displayBounds, on: screen)
+        pixelSize = Self.pixelSize(for: snappedCoreGraphicsRect, displayBounds: displayBounds, scale: backingScaleFactor)
     }
 
     var isCapturable: Bool {
@@ -67,18 +75,26 @@ struct ScreenCaptureRegion: Equatable {
         return intersection.width * intersection.height
     }
 
-    private static func pixelAligned(_ rect: CGRect, scale: CGFloat) -> CGRect {
-        let minX = floor(rect.minX * scale) / scale
-        let minY = floor(rect.minY * scale) / scale
-        let maxX = ceil(rect.maxX * scale) / scale
-        let maxY = ceil(rect.maxY * scale) / scale
+    private static func pixelSnapped(_ rect: CGRect, displayBounds: CGRect, scale: CGFloat) -> CGRect {
+        let minX = snappedCoordinate(rect.minX, origin: displayBounds.minX, scale: scale)
+        let minY = snappedCoordinate(rect.minY, origin: displayBounds.minY, scale: scale)
+        let maxX = snappedCoordinate(rect.maxX, origin: displayBounds.minX, scale: scale)
+        let maxY = snappedCoordinate(rect.maxY, origin: displayBounds.minY, scale: scale)
         return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
 
-    private static func pixelSize(for rect: CGRect, scale: CGFloat) -> CGSize {
-        CGSize(
-            width: max(1, (rect.width * scale).rounded()),
-            height: max(1, (rect.height * scale).rounded())
+    private static func snappedCoordinate(_ value: CGFloat, origin: CGFloat, scale: CGFloat) -> CGFloat {
+        origin + ((value - origin) * scale).rounded() / scale
+    }
+
+    private static func pixelSize(for rect: CGRect, displayBounds: CGRect, scale: CGFloat) -> CGSize {
+        let minX = ((rect.minX - displayBounds.minX) * scale).rounded()
+        let minY = ((rect.minY - displayBounds.minY) * scale).rounded()
+        let maxX = ((rect.maxX - displayBounds.minX) * scale).rounded()
+        let maxY = ((rect.maxY - displayBounds.minY) * scale).rounded()
+        return CGSize(
+            width: max(1, maxX - minX),
+            height: max(1, maxY - minY)
         )
     }
 
@@ -93,6 +109,15 @@ struct ScreenCaptureRegion: Equatable {
             width: appKitRect.width,
             height: appKitRect.height
         )
+    }
+
+    private static func appKitRect(from coreGraphicsRect: CGRect, displayBounds: CGRect, on screen: NSScreen) -> CGRect {
+        let screenFrame = screen.frame
+        let minX = screenFrame.minX + (coreGraphicsRect.minX - displayBounds.minX)
+        let maxX = screenFrame.minX + (coreGraphicsRect.maxX - displayBounds.minX)
+        let minY = screenFrame.maxY - (coreGraphicsRect.maxY - displayBounds.minY)
+        let maxY = screenFrame.maxY - (coreGraphicsRect.minY - displayBounds.minY)
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
 
 }

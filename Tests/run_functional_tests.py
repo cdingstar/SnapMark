@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import math
 import plistlib
 import re
 import subprocess
@@ -50,6 +51,7 @@ class FunctionalTestRunner:
             TestCase("SMK-P0-SHOT-008", "实际截图内容尺寸与选择像素尺寸一致", self.case_region_capture_pixel_size),
             TestCase("SMK-P0-SHOT-009", "选择框尺寸提示显示实际像素", self.case_selection_size_label_pixels),
             TestCase("SMK-P0-SHOT-010", "选区坐标面板显示 local/screen/capture/pixel 转换", self.case_selection_coordinate_overlay),
+            TestCase("SMK-P0-SHOT-011", "四个拖拽方向的截图像素区域一致", self.case_region_drag_direction_pixel_edges),
             TestCase("SMK-P0-MAG-001", "截图选择放大镜为 5x 像素化放大并扩大视野", self.case_selection_magnifier),
             TestCase("SMK-P0-ANN-001", "编辑器标注工具覆盖箭头/矩形/文字/马赛克/放大镜", self.case_annotation_tools),
             TestCase("SMK-P0-EDITOR-001", "编辑器使用棋盘底、居中显示、缩放和平移", self.case_editor_checkerboard_zoom_pan),
@@ -137,8 +139,9 @@ class FunctionalTestRunner:
 
         for token in [
             "backingScaleFactor = max(1, screen.backingScaleFactor)",
-            "floor(rect.minX * scale) / scale",
-            "ceil(rect.maxX * scale) / scale",
+            "pixelSnapped(",
+            "snappedCoordinate(",
+            "Self.coreGraphicsRect(from: rawRect.standardized, on: screen)",
             "screenFrame.maxY - appKitPoint.y",
             "coreGraphicsDisplayBounds(for: screen)",
             "CGDisplayBounds(CGDirectDisplayID",
@@ -157,13 +160,13 @@ class FunctionalTestRunner:
 
         scale = 2
         rect = {"min_x": 120.25, "min_y": 80.25, "max_x": 150.5, "max_y": 120.5}
-        aligned_min_x = (rect["min_x"] * scale // 1) / scale
-        aligned_min_y = (rect["min_y"] * scale // 1) / scale
-        aligned_max_x = -(-rect["max_x"] * scale // 1) / scale
-        aligned_max_y = -(-rect["max_y"] * scale // 1) / scale
+        aligned_min_x = self.round_away(rect["min_x"] * scale) / scale
+        aligned_min_y = self.round_away(rect["min_y"] * scale) / scale
+        aligned_max_x = self.round_away(rect["max_x"] * scale) / scale
+        aligned_max_y = self.round_away(rect["max_y"] * scale) / scale
         cg_y = 956 - aligned_max_y
-        self.require(aligned_min_x == 120.0, "fixture minX alignment failed")
-        self.require(aligned_min_y == 80.0, "fixture minY alignment failed")
+        self.require(aligned_min_x == 120.5, "fixture minX snapping failed")
+        self.require(aligned_min_y == 80.5, "fixture minY snapping failed")
         self.require(aligned_max_x == 150.5, "fixture maxX alignment failed")
         self.require(aligned_max_y == 120.5, "fixture maxY alignment failed")
         self.require(cg_y == 835.5, "fixture CoreGraphics y flip failed")
@@ -174,8 +177,8 @@ class FunctionalTestRunner:
         app = self.read("Sources/SnapMark/AppDelegate.swift")
 
         self.require("let pixelSize: CGSize" in region, "region must store selected pixel size")
-        self.require("(rect.width * scale).rounded()" in region, "pixel width must derive from aligned point width and scale")
-        self.require("(rect.height * scale).rounded()" in region, "pixel height must derive from aligned point height and scale")
+        self.require("maxX - minX" in region, "pixel width must derive from snapped pixel edges")
+        self.require("maxY - minY" in region, "pixel height must derive from snapped pixel edges")
         self.require("func capture(region: ScreenCaptureRegion)" in service, "capture service must expose region capture")
         self.require("expectedPixelSize: region.pixelSize" in service, "region capture must pass expected pixel size")
         self.require("size: expectedPixelSize ?? CGSize(width: cgImage.width, height: cgImage.height)" in service, "NSImage size must preserve expected capture pixels")
@@ -188,9 +191,10 @@ class FunctionalTestRunner:
 
     def case_selection_size_label_pixels(self) -> None:
         selection = self.read("Sources/SnapMark/ScreenSelectionView.swift")
-        self.require("window?.screen?.backingScaleFactor" in selection, "selection label must use screen backing scale")
-        self.require("rect.width * scale" in selection, "selection width label must convert points to pixels")
-        self.require("rect.height * scale" in selection, "selection height label must convert points to pixels")
+        self.require("selectionPixelSizeText(for:" in selection, "selection label must use shared pixel size path")
+        self.require("ScreenCaptureRegion(appKitRect: screenRect, screen: screen)" in selection, "selection label must map through ScreenCaptureRegion")
+        self.require("region.pixelSize.width" in selection, "selection width label must use captured pixel width")
+        self.require("region.pixelSize.height" in selection, "selection height label must use captured pixel height")
         self.require(" px" in selection, "selection label must show px unit")
 
     def case_selection_coordinate_overlay(self) -> None:
@@ -205,6 +209,39 @@ class FunctionalTestRunner:
         self.require("ScreenCaptureRegion(appKitRect: screenRect, screen: screen)" in overlay, "overlay must show final region conversion")
         self.require("coreGraphicsPoint(from: appKitPoint" in region and "screenFrame.maxY - appKitPoint.y" in region, "capture point conversion must use y-flip")
         self.require("backingPixelPoint(from appKitPoint" in region and "* scale).rounded()" in region, "pixel point conversion must use backing scale")
+
+    def case_region_drag_direction_pixel_edges(self) -> None:
+        region = self.read("Sources/SnapMark/ScreenCaptureRegion.swift")
+        self.require("floor(rect.minX * scale)" not in region, "region snapping must not expand left edge with floor")
+        self.require("ceil(rect.maxY * scale)" not in region, "region snapping must not expand top edge through AppKit maxY")
+
+        scale = 2
+        screen_height = 956
+        corners = {
+            "tl": (120.25, 820.25),
+            "tr": (300.75, 820.25),
+            "bl": (120.25, 700.75),
+            "br": (300.75, 700.75),
+        }
+        directions = [("tl", "br"), ("br", "tl"), ("tr", "bl"), ("bl", "tr")]
+        expected_origin = (
+            self.round_away(corners["tl"][0] * scale),
+            self.round_away((screen_height - corners["tl"][1]) * scale),
+        )
+        old_outward_origin = (
+            math.floor(corners["tl"][0] * scale),
+            screen_height * scale - math.ceil(corners["tl"][1] * scale),
+        )
+        self.require(expected_origin == (241, 272), "fixture expected snapped top-left failed")
+        self.require(old_outward_origin == (240, 271), "fixture must reproduce previous top-left expansion")
+
+        regions = [
+            self.fixture_region_from_drag(start=corners[start], end=corners[end], screen_height=screen_height, scale=scale)
+            for start, end in directions
+        ]
+        self.require(all(region_fixture == regions[0] for region_fixture in regions), "all drag directions must produce the same capture pixels")
+        self.require(regions[0]["origin"] == expected_origin, f"capture origin should match selected top-left pixel, got {regions[0]['origin']}")
+        self.require(regions[0]["size"] == (361, 239), f"unexpected snapped capture size: {regions[0]['size']}")
 
     def case_selection_magnifier(self) -> None:
         magnifier = self.read("Sources/SnapMark/SelectionMagnifierRenderer.swift")
@@ -453,7 +490,7 @@ class FunctionalTestRunner:
             "Sources/SnapMark/SelectionCoordinateOverlay.swift": 130,
             "Sources/SnapMark/SelectionMagnifierGeometry.swift": 100,
             "Sources/SnapMark/SelectionMagnifierRenderer.swift": 180,
-            "Sources/SnapMark/ScreenCaptureRegion.swift": 120,
+            "Sources/SnapMark/ScreenCaptureRegion.swift": 140,
             "Sources/SnapMark/WindowInspector.swift": 140,
         }
         for relative, limit in limits.items():
@@ -480,6 +517,7 @@ class FunctionalTestRunner:
             "SMK-P0-SHOT-008",
             "SMK-P0-SHOT-009",
             "SMK-P0-SHOT-010",
+            "SMK-P0-SHOT-011",
             "SMK-P0-MAG-001",
             "SMK-P0-ANN-001",
             "SMK-P0-EDITOR-001",
@@ -494,6 +532,35 @@ class FunctionalTestRunner:
             "SMK-P0-BUNDLE-006",
         ]:
             self.require(case_id in test_plan, f"test plan missing {case_id}")
+
+    @staticmethod
+    def round_away(value: float) -> int:
+        return math.floor(value + 0.5) if value >= 0 else math.ceil(value - 0.5)
+
+    def fixture_region_from_drag(
+        self,
+        start: tuple[float, float],
+        end: tuple[float, float],
+        screen_height: int,
+        scale: int,
+    ) -> dict[str, tuple[int, int]]:
+        left = min(start[0], end[0])
+        right = max(start[0], end[0])
+        bottom = min(start[1], end[1])
+        top = max(start[1], end[1])
+
+        cg_min_x = left
+        cg_min_y = screen_height - top
+        cg_max_x = right
+        cg_max_y = screen_height - bottom
+        snapped_min_x = self.round_away(cg_min_x * scale)
+        snapped_min_y = self.round_away(cg_min_y * scale)
+        snapped_max_x = self.round_away(cg_max_x * scale)
+        snapped_max_y = self.round_away(cg_max_y * scale)
+        return {
+            "origin": (snapped_min_x, snapped_min_y),
+            "size": (snapped_max_x - snapped_min_x, snapped_max_y - snapped_min_y),
+        }
 
     def case_app_bundle_resources(self) -> None:
         assert self.app is not None
