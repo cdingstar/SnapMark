@@ -8,11 +8,14 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     private let saveURL: URL
     private var autosaveWorkItem: DispatchWorkItem?
     private var shouldSaveOnClose = true
+    private let imagePixelSize: CGSize
+    private let imageSizeLabel = NSTextField(labelWithString: "")
     private var toolControl: NSSegmentedControl?
     private var zoomSlider: NSSlider?
     private var zoomLabel: NSTextField?
 
     init(image: NSImage) {
+        imagePixelSize = image.snapMarkPixelSize
         canvasView = EditorCanvasView(image: image)
         saveURL = AutoSaveStore.newCaptureURL()
 
@@ -23,7 +26,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         scrollView.drawsBackground = false
         scrollView.documentView = canvasView
 
-        let contentSize = EditorWindowController.preferredWindowSize(for: image.snapMarkPixelSize)
+        let contentSize = EditorWindowController.preferredWindowSize(for: imagePixelSize)
         canvasView.updateViewportSize(contentSize)
         canvasView.setZoomScale(canvasView.fitZoomScale(for: contentSize))
 
@@ -33,7 +36,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             backing: .buffered,
             defer: false
         )
-        window.title = "SnapMark"
+        window.title = "SnapMark · \(Self.formatImageSize(imagePixelSize))"
         window.minSize = CGSize(width: 560, height: 360)
         window.contentView = scrollView
 
@@ -110,9 +113,13 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     private func setupToolbar() {
         let toolbar = NSToolbar(identifier: "SnapMarkToolbar")
         toolbar.delegate = self
-        toolbar.displayMode = .iconAndLabel
+        toolbar.displayMode = .iconOnly
+        toolbar.sizeMode = .small
         toolbar.allowsUserCustomization = false
         window?.toolbar = toolbar
+        if #available(macOS 11.0, *) {
+            window?.toolbarStyle = .unifiedCompact
+        }
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -121,11 +128,11 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [
-            .tools,
+            .imageSize,
             .flexibleSpace,
+            .tools,
             .fitZoom,
             .zoom,
-            .flexibleSpace,
             .undo,
             .copy,
             .save,
@@ -135,6 +142,20 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         switch itemIdentifier {
+        case .imageSize:
+            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.label = "尺寸"
+            item.paletteLabel = "尺寸"
+            item.toolTip = "截图尺寸"
+            imageSizeLabel.stringValue = Self.formatImageSize(imagePixelSize)
+            imageSizeLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
+            imageSizeLabel.textColor = .secondaryLabelColor
+            imageSizeLabel.alignment = .left
+            imageSizeLabel.setContentHuggingPriority(.required, for: .horizontal)
+            imageSizeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+            item.view = imageSizeLabel
+            return item
+
         case .tools:
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             item.label = "工具"
@@ -145,13 +166,14 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
                 target: self,
                 action: #selector(changeTool)
             )
+            control.controlSize = .small
             control.segmentStyle = .texturedRounded
             control.selectedSegment = canvasView.currentTool.rawValue
-            control.setWidth(78, forSegment: AnnotationTool.arrow.rawValue)
-            control.setWidth(70, forSegment: AnnotationTool.rectangle.rawValue)
-            control.setWidth(68, forSegment: AnnotationTool.text.rawValue)
-            control.setWidth(86, forSegment: AnnotationTool.mosaic.rawValue)
-            control.setWidth(70, forSegment: AnnotationTool.magnifier.rawValue)
+            control.setWidth(52, forSegment: AnnotationTool.arrow.rawValue)
+            control.setWidth(52, forSegment: AnnotationTool.rectangle.rawValue)
+            control.setWidth(48, forSegment: AnnotationTool.text.rawValue)
+            control.setWidth(62, forSegment: AnnotationTool.mosaic.rawValue)
+            control.setWidth(62, forSegment: AnnotationTool.magnifier.rawValue)
             item.view = control
             toolControl = control
             return item
@@ -183,14 +205,14 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
                 action: #selector(changeZoom)
             )
             slider.controlSize = .small
-            slider.widthAnchor.constraint(equalToConstant: 150).isActive = true
+            slider.widthAnchor.constraint(equalToConstant: 104).isActive = true
 
             let stack = NSStackView(views: [label, slider])
             stack.orientation = .horizontal
             stack.alignment = .centerY
-            stack.spacing = 8
+            stack.spacing = 6
             stack.translatesAutoresizingMaskIntoConstraints = false
-            stack.widthAnchor.constraint(greaterThanOrEqualToConstant: 214).isActive = true
+            stack.widthAnchor.constraint(greaterThanOrEqualToConstant: 156).isActive = true
 
             item.view = stack
             zoomLabel = label
@@ -225,10 +247,16 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         case .dragCopy:
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             item.label = "拖拽复制"
-            let button = DragExportButton(title: "拖拽复制", target: nil, action: nil)
+            item.paletteLabel = "拖拽复制"
+            item.toolTip = "拖拽复制"
+            let button = DragExportButton(title: "", target: nil, action: nil)
             button.image = NSImage(systemSymbolName: "hand.draw", accessibilityDescription: "拖拽复制")
-            button.imagePosition = .imageLeading
+            button.imagePosition = .imageOnly
             button.bezelStyle = .texturedRounded
+            button.controlSize = .small
+            button.toolTip = "拖拽复制"
+            button.widthAnchor.constraint(equalToConstant: 28).isActive = true
+            button.heightAnchor.constraint(equalToConstant: 24).isActive = true
             button.imageProvider = { [weak self] in self?.canvasView.renderedImage() }
             item.view = button
             return item
@@ -321,6 +349,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         zoomLabel?.stringValue = "\(Int((canvasView.zoomScale * 100).rounded()))%"
     }
 
+    private static func formatImageSize(_ size: CGSize) -> String {
+        "\(Int(size.width.rounded())) x \(Int(size.height.rounded())) px"
+    }
+
     private func toolbarButton(identifier: NSToolbarItem.Identifier, label: String, symbolName: String, action: Selector) -> NSToolbarItem {
         let item = NSToolbarItem(itemIdentifier: identifier)
         item.label = label
@@ -334,6 +366,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
 }
 
 private extension NSToolbarItem.Identifier {
+    static let imageSize = NSToolbarItem.Identifier("SnapMark.ImageSize")
     static let tools = NSToolbarItem.Identifier("SnapMark.Tools")
     static let fitZoom = NSToolbarItem.Identifier("SnapMark.FitZoom")
     static let zoom = NSToolbarItem.Identifier("SnapMark.Zoom")

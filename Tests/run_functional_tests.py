@@ -332,8 +332,21 @@ class FunctionalTestRunner:
             "NSSlider(",
             "EditorCanvasView.maximumZoomScale",
             "fitZoom",
+            "imageSizeLabel.stringValue = Self.formatImageSize(imagePixelSize)",
+            "window.title = \"SnapMark · \\(Self.formatImageSize(imagePixelSize))\"",
+            "toolbar.displayMode = .iconOnly",
+            "toolbar.sizeMode = .small",
+            "window?.toolbarStyle = .unifiedCompact",
+            "button.imagePosition = .imageOnly",
         ]:
             self.require(token in editor, f"editor window missing {token}")
+        default_items = re.search(r"func toolbarDefaultItemIdentifiers\(_ toolbar: NSToolbar\) -> \[NSToolbarItem.Identifier\] \{\n        \[\n(?P<body>.*?)\n        \]\n    \}", editor, re.DOTALL)
+        self.require(default_items is not None, "toolbar default items missing")
+        assert default_items is not None
+        item_body = default_items.group("body")
+        self.require(item_body.count(".flexibleSpace") == 1, "toolbar should use one flexible space for right alignment")
+        self.require(item_body.index(".imageSize") < item_body.index(".flexibleSpace") < item_body.index(".tools"), "toolbar controls should be right aligned after image size")
+        self.require("formatImageSize(_ size: CGSize)" in editor and "x \\(Int(size.height.rounded())) px" in editor, "editor must format screenshot dimensions")
 
     def case_editor_export_independent_from_zoom(self) -> None:
         canvas = self.read("Sources/SnapMark/EditorCanvasView.swift")
