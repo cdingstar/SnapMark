@@ -1,6 +1,13 @@
 import AppKit
 
 final class EditorWindowController: NSWindowController, NSWindowDelegate, NSToolbarDelegate {
+    private static let minimumToolbarWindowWidth: CGFloat = 1040
+    private static let minimumWindowHeight: CGFloat = 360
+    private static let imageSizeToolbarWidth: CGFloat = 112
+    private static let toolsToolbarWidth: CGFloat = 286
+    private static let zoomToolbarWidth: CGFloat = 156
+    private static let dragCopyToolbarWidth: CGFloat = 28
+
     var onClose: (() -> Void)?
 
     private let scrollView = NSScrollView()
@@ -36,8 +43,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             backing: .buffered,
             defer: false
         )
-        window.title = "SnapMark · \(Self.formatImageSize(imagePixelSize))"
-        window.minSize = CGSize(width: 560, height: 360)
+        window.title = "SnapMark"
+        window.minSize = Self.minimumWindowSize()
         window.contentView = scrollView
 
         super.init(window: window)
@@ -104,10 +111,17 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         let visibleFrame = NSScreen.main?.visibleFrame.size ?? CGSize(width: 1280, height: 800)
         let maxWidth = min(1180, visibleFrame.width - 120)
         let maxHeight = min(820, visibleFrame.height - 120)
+        let minimumWidth = min(Self.minimumToolbarWindowWidth, maxWidth)
         return CGSize(
-            width: max(560, min(maxWidth, imageSize.width + 20)),
-            height: max(360, min(maxHeight, imageSize.height + 80))
+            width: max(minimumWidth, min(maxWidth, imageSize.width + 20)),
+            height: max(Self.minimumWindowHeight, min(maxHeight, imageSize.height + 80))
         )
+    }
+
+    private static func minimumWindowSize() -> CGSize {
+        let visibleWidth = NSScreen.main?.visibleFrame.width ?? 1280
+        let width = min(Self.minimumToolbarWindowWidth, max(560, visibleWidth - 120))
+        return CGSize(width: width, height: Self.minimumWindowHeight)
     }
 
     private func setupToolbar() {
@@ -154,6 +168,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             imageSizeLabel.setContentHuggingPriority(.required, for: .horizontal)
             imageSizeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
             item.view = imageSizeLabel
+            lockToolbarItem(item, width: Self.imageSizeToolbarWidth)
             return item
 
         case .tools:
@@ -175,6 +190,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             control.setWidth(62, forSegment: AnnotationTool.mosaic.rawValue)
             control.setWidth(62, forSegment: AnnotationTool.magnifier.rawValue)
             item.view = control
+            lockToolbarItem(item, width: Self.toolsToolbarWidth)
             toolControl = control
             return item
 
@@ -212,9 +228,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             stack.alignment = .centerY
             stack.spacing = 6
             stack.translatesAutoresizingMaskIntoConstraints = false
-            stack.widthAnchor.constraint(greaterThanOrEqualToConstant: 156).isActive = true
 
             item.view = stack
+            lockToolbarItem(item, width: Self.zoomToolbarWidth)
             zoomLabel = label
             zoomSlider = slider
             updateZoomUI()
@@ -255,10 +271,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             button.bezelStyle = .texturedRounded
             button.controlSize = .small
             button.toolTip = "拖拽复制"
-            button.widthAnchor.constraint(equalToConstant: 28).isActive = true
             button.heightAnchor.constraint(equalToConstant: 24).isActive = true
             button.imageProvider = { [weak self] in self?.canvasView.renderedImage() }
             item.view = button
+            lockToolbarItem(item, width: Self.dragCopyToolbarWidth)
             return item
 
         default:
@@ -362,6 +378,12 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         item.target = self
         item.action = action
         return item
+    }
+
+    private func lockToolbarItem(_ item: NSToolbarItem, width: CGFloat) {
+        guard let view = item.view else { return }
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.widthAnchor.constraint(equalToConstant: width).isActive = true
     }
 }
 

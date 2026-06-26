@@ -334,13 +334,20 @@ class FunctionalTestRunner:
             "EditorCanvasView.maximumZoomScale",
             "fitZoom",
             "imageSizeLabel.stringValue = Self.formatImageSize(imagePixelSize)",
-            "window.title = \"SnapMark · \\(Self.formatImageSize(imagePixelSize))\"",
+            "window.title = \"SnapMark\"",
+            "window.minSize = Self.minimumWindowSize()",
+            "minimumToolbarWindowWidth: CGFloat = 1040",
+            "lockToolbarItem(item, width: Self.toolsToolbarWidth)",
             "toolbar.displayMode = .iconOnly",
             "toolbar.sizeMode = .small",
             "window?.toolbarStyle = .unifiedCompact",
             "button.imagePosition = .imageOnly",
         ]:
             self.require(token in editor, f"editor window missing {token}")
+        self.require("window.title = \"SnapMark · \\(Self.formatImageSize(imagePixelSize))\"" not in editor, "window title should not duplicate image size")
+        self.require("lockToolbarItem(item, width: Self.imageSizeToolbarWidth)" in editor, "image size toolbar item should have a stable width")
+        self.require("lockToolbarItem(item, width: Self.zoomToolbarWidth)" in editor, "zoom toolbar item should have a stable width")
+        self.require("lockToolbarItem(item, width: Self.dragCopyToolbarWidth)" in editor, "drag toolbar item should have a stable width")
         default_items = re.search(r"func toolbarDefaultItemIdentifiers\(_ toolbar: NSToolbar\) -> \[NSToolbarItem.Identifier\] \{\n        \[\n(?P<body>.*?)\n        \]\n    \}", editor, re.DOTALL)
         self.require(default_items is not None, "toolbar default items missing")
         assert default_items is not None
