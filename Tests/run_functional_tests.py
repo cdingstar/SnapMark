@@ -50,7 +50,7 @@ class FunctionalTestRunner:
             TestCase("SMK-P0-SHOT-007", "区域截图坐标按屏幕和 backing scale 映射", self.case_region_coordinate_mapping),
             TestCase("SMK-P0-SHOT-008", "实际截图内容尺寸与选择像素尺寸一致", self.case_region_capture_pixel_size),
             TestCase("SMK-P0-SHOT-009", "选择框尺寸提示显示实际像素", self.case_selection_size_label_pixels),
-            TestCase("SMK-P0-SHOT-010", "选区坐标面板显示 local/screen/capture/pixel 转换", self.case_selection_coordinate_overlay),
+            TestCase("SMK-P0-SHOT-010", "选区坐标面板只显示起点终点和像素尺寸", self.case_selection_coordinate_overlay),
             TestCase("SMK-P0-SHOT-011", "四个拖拽方向的截图像素区域一致", self.case_region_drag_direction_pixel_edges),
             TestCase("SMK-P0-SHOT-012", "半像素垂直边界通过外包截图和像素裁剪保持一致", self.case_region_half_pixel_capture_crop),
             TestCase("SMK-P0-MAG-001", "截图选择放大镜为 5x 像素化放大并扩大视野", self.case_selection_magnifier),
@@ -207,15 +207,14 @@ class FunctionalTestRunner:
     def case_selection_coordinate_overlay(self) -> None:
         selection = self.read("Sources/SnapMark/ScreenSelectionView.swift")
         overlay = self.read("Sources/SnapMark/SelectionCoordinateOverlay.swift")
-        region = self.read("Sources/SnapMark/ScreenCaptureRegion.swift")
         self.require("SelectionCoordinateOverlay.draw" in selection, "selection view must draw coordinate overlay")
-        for token in ["zoom 5x / source 41px", "cursor local", "screen", "capture", " px ", "start  local", "end    local", "region capture", "pixels"]:
-            self.require(token in overlay, f"coordinate overlay missing {token}")
-        self.require("ScreenCaptureRegion.coreGraphicsPoint(from: screenPoint, on: screen)" in overlay, "overlay must use shared capture coordinate conversion")
-        self.require("ScreenCaptureRegion.backingPixelPoint(from: screenPoint, on: screen)" in overlay, "overlay must use shared pixel coordinate conversion")
-        self.require("ScreenCaptureRegion(appKitRect: screenRect, screen: screen)" in overlay, "overlay must show final region conversion")
-        self.require("coreGraphicsPoint(from: appKitPoint" in region and "screenFrame.maxY - appKitPoint.y" in region, "capture point conversion must use y-flip")
-        self.require("backingPixelPoint(from appKitPoint" in region and "* scale).rounded()" in region, "pixel point conversion must use backing scale")
+        self.require("guard let startPoint, let selectionRect else { return }" in overlay, "overlay must only show while dragging a selection")
+        self.require("screenPoint(for: startPoint" in overlay and "screenPoint(for: currentPoint" in overlay, "overlay must show screen start/end points")
+        self.require("ScreenCaptureRegion(appKitRect: screenRect, screen: screen)" in overlay, "overlay must use shared region pixel size")
+        self.require("format(region.pixelSize)" in overlay and " px" in overlay, "overlay must show width x height pixels")
+        self.require("drawLabel(" in overlay and "drawMultilineLabel" not in overlay, "overlay should be a single concise line")
+        for token in ["zoom 5x / source 41px", "cursor local", "capturePoint", "pixelPoint", "region capture", "start  local", "end    local"]:
+            self.require(token not in overlay, f"coordinate overlay should not expose debug token: {token}")
 
     def case_region_drag_direction_pixel_edges(self) -> None:
         region = self.read("Sources/SnapMark/ScreenCaptureRegion.swift")

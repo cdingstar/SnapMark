@@ -9,42 +9,22 @@ struct SelectionCoordinateOverlay {
         window: NSWindow
     ) {
         guard let screen = window.screen else { return }
+        guard let startPoint, let selectionRect else { return }
 
-        let current = coordinateInfo(for: currentPoint, window: window, screen: screen)
-        var lines = [
-            "zoom 5x / source 41px",
-            "cursor local \(format(current.localPoint)) screen \(format(current.screenPoint)) capture \(format(current.capturePoint)) px \(format(current.pixelPoint))"
-        ]
+        let screenRect = window.convertToScreen(selectionRect)
+        guard let region = ScreenCaptureRegion(appKitRect: screenRect, screen: screen) else { return }
 
-        if let startPoint, let selectionRect {
-            let start = coordinateInfo(for: startPoint, window: window, screen: screen)
-            lines = [
-                "zoom 5x / source 41px",
-                "start  local \(format(start.localPoint)) screen \(format(start.screenPoint)) capture \(format(start.capturePoint)) px \(format(start.pixelPoint))",
-                "end    local \(format(current.localPoint)) screen \(format(current.screenPoint)) capture \(format(current.capturePoint)) px \(format(current.pixelPoint))"
-            ]
-
-            let screenRect = window.convertToScreen(selectionRect)
-            if let region = ScreenCaptureRegion(appKitRect: screenRect, screen: screen) {
-                lines.append("region capture \(format(region.coreGraphicsRect.origin)) \(format(region.coreGraphicsRect.size)) pixels \(format(region.pixelSize))")
-            }
-        }
-
-        drawMultilineLabel(
-            lines.joined(separator: "\n"),
+        let start = screenPoint(for: startPoint, window: window)
+        let end = screenPoint(for: currentPoint, window: window)
+        drawLabel(
+            "\(format(start)) \(format(end))  \(format(region.pixelSize)) px",
             preferredOrigin: CGPoint(x: currentPoint.x + 18, y: currentPoint.y + 18),
             in: bounds
         )
     }
 
-    private static func coordinateInfo(for localPoint: CGPoint, window: NSWindow, screen: NSScreen) -> SelectionCoordinateInfo {
-        let screenPoint = window.convertToScreen(CGRect(origin: localPoint, size: .zero)).origin
-        return SelectionCoordinateInfo(
-            localPoint: localPoint,
-            screenPoint: screenPoint,
-            capturePoint: ScreenCaptureRegion.coreGraphicsPoint(from: screenPoint, on: screen),
-            pixelPoint: ScreenCaptureRegion.backingPixelPoint(from: screenPoint, on: screen)
-        )
+    private static func screenPoint(for localPoint: CGPoint, window: NSWindow) -> CGPoint {
+        window.convertToScreen(CGRect(origin: localPoint, size: .zero)).origin
     }
 
     private static func format(_ point: CGPoint) -> String {
@@ -55,14 +35,11 @@ struct SelectionCoordinateOverlay {
         "\(Int(size.width.rounded()))x\(Int(size.height.rounded()))"
     }
 
-    private static func drawMultilineLabel(_ text: String, preferredOrigin: CGPoint, in bounds: CGRect) {
-        let maxWidth = min(bounds.width - 16, 640)
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = 3
+    private static func drawLabel(_ text: String, preferredOrigin: CGPoint, in bounds: CGRect) {
+        let maxWidth = min(bounds.width - 16, 420)
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .medium),
-            .foregroundColor: NSColor.white,
-            .paragraphStyle: paragraph
+            .foregroundColor: NSColor.white
         ]
         let textRect = NSString(string: text).boundingRect(
             with: CGSize(width: maxWidth - 16, height: .greatestFiniteMagnitude),
@@ -97,11 +74,4 @@ struct SelectionCoordinateOverlay {
             attributes: attributes
         )
     }
-}
-
-private struct SelectionCoordinateInfo {
-    let localPoint: CGPoint
-    let screenPoint: CGPoint
-    let capturePoint: CGPoint
-    let pixelPoint: CGPoint
 }
