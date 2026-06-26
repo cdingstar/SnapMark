@@ -38,7 +38,7 @@ Scripts/test.sh --skip-build --app dist/SnapMark.app
 
 | ID | 类型 | 模块 | 测试点 |
 | --- | --- | --- | --- |
-| SMK-P0-MAG-001 | 自动 | 截图放大镜 | 激活截图时 mouse move 显示 10x 像素化放大，关闭插值。 |
+| SMK-P0-MAG-001 | 自动 | 截图放大镜 | 激活截图时 mouse move 显示 5x 像素化放大，使用更大的 41px source window，放大镜十字线和实际截图坐标一致。 |
 | SMK-P0-MAG-002 | 手动 | 截图放大镜 | 右下角放不下时自动换到其他可完整显示位置。 |
 
 ## P0 标注与编辑

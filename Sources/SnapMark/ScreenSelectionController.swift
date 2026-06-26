@@ -60,7 +60,7 @@ final class ScreenSelectionController {
 
     private func screenSnapshot(for screen: NSScreen) -> CGImage? {
         CGWindowListCreateImage(
-            screen.frame.integral,
+            ScreenCaptureRegion.coreGraphicsDisplayBounds(for: screen).integral,
             .optionOnScreenOnly,
             kCGNullWindowID,
             [.bestResolution]

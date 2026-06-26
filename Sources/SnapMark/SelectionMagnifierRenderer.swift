@@ -3,29 +3,26 @@ import CoreGraphics
 
 struct SelectionMagnifierRenderer {
     let screenSnapshot: CGImage?
-    let zoom: CGFloat = 10
-    let sourcePixels = 21
+    let zoom: CGFloat = 5
+    let sourcePixels = 41
 
     func draw(at point: CGPoint, in bounds: CGRect) {
         guard let screenSnapshot else { return }
 
-        let snapshotWidth = CGFloat(screenSnapshot.width)
-        let snapshotHeight = CGFloat(screenSnapshot.height)
-        guard bounds.width > 0, bounds.height > 0, snapshotWidth > 0, snapshotHeight > 0 else { return }
+        guard
+            let geometry = SelectionMagnifierGeometry.make(
+                focus: point,
+                in: bounds,
+                snapshotSize: CGSize(width: screenSnapshot.width, height: screenSnapshot.height),
+                sourcePixels: sourcePixels,
+                zoom: zoom
+            ),
+            let crop = screenSnapshot.cropping(to: geometry.cropRect)
+        else {
+            return
+        }
 
-        let scaleX = snapshotWidth / bounds.width
-        let scaleY = snapshotHeight / bounds.height
-        let pixelX = point.x * scaleX
-        let pixelY = (bounds.height - point.y) * scaleY
-        let sourceSize = CGFloat(sourcePixels)
-        let halfSource = sourceSize / 2
-        let cropX = max(0, min(snapshotWidth - sourceSize, floor(pixelX - halfSource)))
-        let cropY = max(0, min(snapshotHeight - sourceSize, floor(pixelY - halfSource)))
-        let cropRect = CGRect(x: cropX, y: cropY, width: sourceSize, height: sourceSize).integral
-
-        guard let crop = screenSnapshot.cropping(to: cropRect) else { return }
-
-        let lensSize = sourceSize * zoom
+        let lensSize = geometry.lensSize
         let lensRect = magnifierRect(near: point, size: lensSize, in: bounds)
 
         NSGraphicsContext.saveGraphicsState()
@@ -45,8 +42,8 @@ struct SelectionMagnifierRenderer {
             fraction: 1
         )
 
-        drawPixelGrid(in: lensRect, sourcePixels: sourcePixels)
-        drawCrosshair(in: lensRect)
+        drawPixelGrid(in: lensRect, sourcePixels: geometry.gridPixels)
+        drawCrosshair(in: lensRect, focusUnitPoint: geometry.focusUnitPoint)
 
         NSColor.systemBlue.setStroke()
         let border = NSBezierPath(rect: lensRect)
@@ -108,8 +105,11 @@ struct SelectionMagnifierRenderer {
         grid.stroke()
     }
 
-    private func drawCrosshair(in rect: CGRect) {
-        let center = CGPoint(x: rect.midX, y: rect.midY)
+    private func drawCrosshair(in rect: CGRect, focusUnitPoint: CGPoint) {
+        let center = CGPoint(
+            x: rect.minX + rect.width * focusUnitPoint.x,
+            y: rect.minY + rect.height * focusUnitPoint.y
+        )
 
         let outline = NSBezierPath()
         outline.lineWidth = 3

@@ -49,7 +49,7 @@ class FunctionalTestRunner:
             TestCase("SMK-P0-SHOT-007", "区域截图坐标按屏幕和 backing scale 映射", self.case_region_coordinate_mapping),
             TestCase("SMK-P0-SHOT-008", "实际截图内容尺寸与选择像素尺寸一致", self.case_region_capture_pixel_size),
             TestCase("SMK-P0-SHOT-009", "选择框尺寸提示显示实际像素", self.case_selection_size_label_pixels),
-            TestCase("SMK-P0-MAG-001", "截图选择放大镜为 10x 像素化放大", self.case_selection_magnifier),
+            TestCase("SMK-P0-MAG-001", "截图选择放大镜为 5x 像素化放大并扩大视野", self.case_selection_magnifier),
             TestCase("SMK-P0-ANN-001", "编辑器标注工具覆盖箭头/矩形/文字/马赛克/放大镜", self.case_annotation_tools),
             TestCase("SMK-P0-EDITOR-001", "编辑器使用棋盘底、居中显示、缩放和平移", self.case_editor_checkerboard_zoom_pan),
             TestCase("SMK-P0-EDITOR-002", "编辑器缩放不影响保存/复制输出像素", self.case_editor_export_independent_from_zoom),
@@ -138,7 +138,7 @@ class FunctionalTestRunner:
             "floor(rect.minX * scale) / scale",
             "ceil(rect.maxX * scale) / scale",
             "screenFrame.maxY - appKitRect.maxY",
-            "displayBounds(for: screen)",
+            "coreGraphicsDisplayBounds(for: screen)",
             "CGDisplayBounds(CGDirectDisplayID",
             "pixelSize = Self.pixelSize",
         ]:
@@ -191,11 +191,27 @@ class FunctionalTestRunner:
 
     def case_selection_magnifier(self) -> None:
         magnifier = self.read("Sources/SnapMark/SelectionMagnifierRenderer.swift")
+        geometry = self.read("Sources/SnapMark/SelectionMagnifierGeometry.swift")
+        controller = self.read("Sources/SnapMark/ScreenSelectionController.swift")
         view = self.read("Sources/SnapMark/ScreenSelectionView.swift")
-        self.require("let zoom: CGFloat = 10" in magnifier, "magnifier zoom must be 10x")
-        self.require("let sourcePixels = 21" in magnifier, "magnifier source pixel window missing")
+        self.require("let zoom: CGFloat = 5" in magnifier, "magnifier zoom must be reduced to 5x")
+        self.require("let sourcePixels = 41" in magnifier, "magnifier source window must show a larger pixel area")
+        self.require("SelectionMagnifierGeometry.make" in magnifier, "magnifier must use shared crop geometry")
+        self.require("ScreenCaptureRegion.coreGraphicsDisplayBounds(for: screen)" in controller, "magnifier snapshot must use CoreGraphics display bounds")
         self.require("imageInterpolation = .none" in magnifier, "magnifier must be pixelated")
+        self.require("floor(point.x * scaleX)" in geometry, "magnifier focus x must map from local point to snapshot pixel")
+        self.require("floor((bounds.height - point.y) * scaleY)" in geometry, "magnifier focus y must use the same y-flip as capture")
+        self.require("focusUnitPoint" in geometry, "magnifier must preserve actual focus point inside cropped image")
+        self.require("1 - ((focusY - cropRect.minY + 0.5) / cropRect.height)" in geometry, "magnifier crosshair y must map top-left pixels into AppKit coordinates")
+        self.require("drawCrosshair(in: lensRect, focusUnitPoint: geometry.focusUnitPoint)" in magnifier, "crosshair must mark actual focused pixel")
         self.require("magnifier.draw(at:" in view, "selection view does not draw magnifier")
+
+        bounds = {"width": 100, "height": 100}
+        snapshot = {"width": 200, "height": 200}
+        point = {"x": 25, "y": 75}
+        focus_x = int(point["x"] * snapshot["width"] / bounds["width"])
+        focus_y = int((bounds["height"] - point["y"]) * snapshot["height"] / bounds["height"])
+        self.require((focus_x, focus_y) == (50, 50), "fixture magnifier focus mapping failed")
 
     def case_annotation_tools(self) -> None:
         annotation = self.read("Sources/SnapMark/Annotation.swift")
@@ -403,6 +419,7 @@ class FunctionalTestRunner:
             "Sources/SnapMark/ScreenSelectionController.swift": 140,
             "Sources/SnapMark/ScreenSelectionView.swift": 280,
             "Sources/SnapMark/ScreenSelectionWindow.swift": 80,
+            "Sources/SnapMark/SelectionMagnifierGeometry.swift": 100,
             "Sources/SnapMark/SelectionMagnifierRenderer.swift": 180,
             "Sources/SnapMark/WindowInspector.swift": 140,
         }

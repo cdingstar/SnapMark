@@ -23,9 +23,17 @@ struct ScreenCaptureRegion: Equatable {
 
     static func fullScreenCoreGraphicsRect(for screens: [NSScreen]) -> CGRect {
         screens
-            .map { displayBounds(for: $0) }
+            .map { coreGraphicsDisplayBounds(for: $0) }
             .reduce(CGRect.null) { $0.union($1) }
             .integral
+    }
+
+    static func coreGraphicsDisplayBounds(for screen: NSScreen) -> CGRect {
+        let key = NSDeviceDescriptionKey("NSScreenNumber")
+        guard let screenNumber = screen.deviceDescription[key] as? NSNumber else {
+            return screen.frame
+        }
+        return CGDisplayBounds(CGDirectDisplayID(screenNumber.uint32Value))
     }
 
     private static func bestScreen(for rect: CGRect) -> NSScreen? {
@@ -57,7 +65,7 @@ struct ScreenCaptureRegion: Equatable {
 
     private static func coreGraphicsRect(from appKitRect: CGRect, on screen: NSScreen) -> CGRect {
         let screenFrame = screen.frame
-        let displayBounds = displayBounds(for: screen)
+        let displayBounds = coreGraphicsDisplayBounds(for: screen)
         return CGRect(
             x: displayBounds.minX + (appKitRect.minX - screenFrame.minX),
             y: displayBounds.minY + (screenFrame.maxY - appKitRect.maxY),
@@ -66,11 +74,4 @@ struct ScreenCaptureRegion: Equatable {
         )
     }
 
-    private static func displayBounds(for screen: NSScreen) -> CGRect {
-        let key = NSDeviceDescriptionKey("NSScreenNumber")
-        guard let screenNumber = screen.deviceDescription[key] as? NSNumber else {
-            return screen.frame
-        }
-        return CGDisplayBounds(CGDirectDisplayID(screenNumber.uint32Value))
-    }
 }
