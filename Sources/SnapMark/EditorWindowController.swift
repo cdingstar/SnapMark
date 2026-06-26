@@ -3,10 +3,9 @@ import AppKit
 final class EditorWindowController: NSWindowController, NSWindowDelegate, NSToolbarDelegate {
     private static let minimumToolbarWindowWidth: CGFloat = 1160
     private static let minimumWindowHeight: CGFloat = 360
-    private static let imageSizeToolbarWidth: CGFloat = 112
+    private static let imageSizeToolbarWidth: CGFloat = 220
     private static let toolsToolbarWidth: CGFloat = 354
     private static let eraserSizeToolbarWidth: CGFloat = 84
-    private static let zoomToolbarWidth: CGFloat = 104
     private static let dragCopyToolbarWidth: CGFloat = 28
 
     var onClose: (() -> Void)?
@@ -149,7 +148,6 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             .tools,
             .eraserSize,
             .fitZoom,
-            .zoom,
             .undo,
             .copy,
             .save,
@@ -176,13 +174,30 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             imageSizeLabel.textColor = .tertiaryLabelColor
             imageSizeLabel.alignment = .left
 
-            let stack = NSStackView(views: [zoomInfoLabel, imageSizeLabel])
-            stack.orientation = .vertical
-            stack.alignment = .leading
-            stack.spacing = 0
+            let slider = NSSlider(
+                value: Double(canvasView.zoomScale),
+                minValue: Double(EditorCanvasView.minimumZoomScale),
+                maxValue: Double(EditorCanvasView.maximumZoomScale),
+                target: self,
+                action: #selector(changeZoom)
+            )
+            slider.controlSize = .small
+            slider.translatesAutoresizingMaskIntoConstraints = false
+            slider.widthAnchor.constraint(equalToConstant: 104).isActive = true
+
+            let infoStack = NSStackView(views: [zoomInfoLabel, imageSizeLabel])
+            infoStack.orientation = .vertical
+            infoStack.alignment = .leading
+            infoStack.spacing = 0
+
+            let stack = NSStackView(views: [infoStack, slider])
+            stack.orientation = .horizontal
+            stack.alignment = .centerY
+            stack.spacing = 8
             stack.translatesAutoresizingMaskIntoConstraints = false
             item.view = stack
             lockToolbarItem(item, width: Self.imageSizeToolbarWidth)
+            zoomSlider = slider
             return item
 
         case .tools:
@@ -241,25 +256,6 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
                 symbolName: "arrow.up.left.and.arrow.down.right",
                 action: #selector(fitZoom)
             )
-
-        case .zoom:
-            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = "缩放"
-            item.paletteLabel = "缩放"
-
-            let slider = NSSlider(
-                value: Double(canvasView.zoomScale),
-                minValue: Double(EditorCanvasView.minimumZoomScale),
-                maxValue: Double(EditorCanvasView.maximumZoomScale),
-                target: self,
-                action: #selector(changeZoom)
-            )
-            slider.controlSize = .small
-            item.view = slider
-            lockToolbarItem(item, width: Self.zoomToolbarWidth)
-            zoomSlider = slider
-            updateZoomUI()
-            return item
 
         case .undo:
             return toolbarButton(
@@ -431,7 +427,6 @@ private extension NSToolbarItem.Identifier {
     static let tools = NSToolbarItem.Identifier("SnapMark.Tools")
     static let eraserSize = NSToolbarItem.Identifier("SnapMark.EraserSize")
     static let fitZoom = NSToolbarItem.Identifier("SnapMark.FitZoom")
-    static let zoom = NSToolbarItem.Identifier("SnapMark.Zoom")
     static let undo = NSToolbarItem.Identifier("SnapMark.Undo")
     static let copy = NSToolbarItem.Identifier("SnapMark.Copy")
     static let save = NSToolbarItem.Identifier("SnapMark.Save")

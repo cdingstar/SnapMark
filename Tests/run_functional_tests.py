@@ -56,12 +56,12 @@ class FunctionalTestRunner:
             TestCase("SMK-P0-MAG-001", "截图选择放大镜为 5x 像素化放大并扩大视野", self.case_selection_magnifier),
             TestCase("SMK-P0-ANN-001", "编辑器标注工具覆盖箭头/矩形/文字/马赛克/放大镜", self.case_annotation_tools),
             TestCase("SMK-P0-ANN-003", "编辑器橡皮擦支持 S/M/L 不同大小", self.case_eraser_tool_sizes),
-            TestCase("SMK-P0-ANN-004", "橡皮擦自由路径预览和导出恢复底图", self.case_eraser_path_rendering_logic),
+            TestCase("SMK-P0-ANN-004", "橡皮擦自由路径预览和导出填充底色", self.case_eraser_path_rendering_logic),
             TestCase("SMK-P0-EDITOR-001", "编辑器使用棋盘底、居中显示、缩放和平移", self.case_editor_checkerboard_zoom_pan),
             TestCase("SMK-P0-EDITOR-002", "编辑器缩放不影响保存/复制输出像素", self.case_editor_export_independent_from_zoom),
             TestCase("SMK-P0-EDITOR-003", "编辑器标注坐标按缩放反算到图片像素", self.case_editor_annotation_coordinate_mapping),
             TestCase("SMK-P0-EDITOR-004", "编辑器 fit 和缩放范围覆盖 1:8 到 8:1", self.case_editor_zoom_range),
-            TestCase("SMK-P0-EDITOR-005", "toolbar 左侧信息上下显示且右侧工具保持单行", self.case_editor_toolbar_stacked_info_layout),
+            TestCase("SMK-P0-EDITOR-005", "toolbar 左侧信息和缩放条组合且右侧工具保持单行", self.case_editor_toolbar_stacked_info_layout),
             TestCase("SMK-P0-SAVE-001", "自动保存目录读取设置且默认 Downloads", self.case_autosave_settings),
             TestCase("SMK-P0-HOT-001", "默认快捷键 fallback 为 A/S/Q", self.case_hotkey_fallbacks),
             TestCase("SMK-P0-HOT-002", "快捷键失效检测和自动切换逻辑存在", self.case_hotkey_health_check),
@@ -330,7 +330,8 @@ class FunctionalTestRunner:
         self.require("annotation.points = points" in canvas, "eraser annotation should keep the drag path")
         self.require("annotation.lineWidth = eraserSize.lineWidth" in canvas, "eraser line width should use selected size")
         self.require("replacePathWithStrokedPath" in renderer, "eraser renderer should clip to a stroked path")
-        self.require("baseImage.draw(in: canvasRect" in renderer, "eraser should restore the base image")
+        self.require("eraserBackgroundColor(isPreview:" in renderer, "eraser should use the configured background color")
+        self.require("NSColor.white.withAlphaComponent" in renderer, "eraser background should default to white")
         self.require("eraserSizeControl" in editor, "toolbar eraser size control missing")
         self.require("EraserSize.allCases.map(\\.title)" in editor, "toolbar should expose S/M/L eraser sizes")
         self.require("changeEraserSize" in editor, "eraser size action missing")
@@ -354,11 +355,12 @@ class FunctionalTestRunner:
         ]:
             self.require(token in canvas, f"eraser path collection missing {token}")
         for token in [
-            "drawEraser(annotation, over: baseImage, canvasRect: canvasRect, isPreview: isPreview)",
+            "drawEraser(annotation, canvasRect: canvasRect, isPreview: isPreview)",
             "let points = annotation.points.isEmpty ? [annotation.start, annotation.end] : annotation.points",
             "context.replacePathWithStrokedPath()",
             "context.clip()",
-            "baseImage.draw(in: canvasRect, from: .zero, operation: .copy",
+            "eraserBackgroundColor(isPreview: isPreview).setFill()",
+            "canvasRect.fill()",
             "drawEraserPreview(points: points, lineWidth: lineWidth)",
             "NSBezierPath(ovalIn: rect).stroke()",
         ]:
@@ -380,6 +382,7 @@ class FunctionalTestRunner:
             stroke_width,
         )
         self.require(erase_bounds == (2, 2, 16, 16), "single-point eraser fixture should create centered erase circle")
+        self.require("NSColor.white.withAlphaComponent(isPreview ? 0.78 : 1)" in renderer, "eraser should fill white after mouse-up")
 
     def case_editor_checkerboard_zoom_pan(self) -> None:
         canvas = self.read("Sources/SnapMark/EditorCanvasView.swift")
@@ -403,8 +406,10 @@ class FunctionalTestRunner:
             "fitZoom",
             "imageSizeLabel.stringValue = Self.formatImageSize(imagePixelSize)",
             "zoomInfoLabel.stringValue = Self.formatZoom(canvasView.zoomScale)",
-            "NSStackView(views: [zoomInfoLabel, imageSizeLabel])",
-            "stack.orientation = .vertical",
+            "let infoStack = NSStackView(views: [zoomInfoLabel, imageSizeLabel])",
+            "infoStack.orientation = .vertical",
+            "let stack = NSStackView(views: [infoStack, slider])",
+            "stack.orientation = .horizontal",
             "window.title = \"SnapMark\"",
             "window.minSize = Self.minimumWindowSize()",
             "minimumToolbarWindowWidth: CGFloat = 1160",
@@ -417,8 +422,9 @@ class FunctionalTestRunner:
             self.require(token in editor, f"editor window missing {token}")
         self.require("window.title = \"SnapMark · \\(Self.formatImageSize(imagePixelSize))\"" not in editor, "window title should not duplicate image size")
         self.require("lockToolbarItem(item, width: Self.imageSizeToolbarWidth)" in editor, "image size toolbar item should have a stable width")
-        self.require("lockToolbarItem(item, width: Self.zoomToolbarWidth)" in editor, "zoom toolbar item should have a stable width")
         self.require("lockToolbarItem(item, width: Self.dragCopyToolbarWidth)" in editor, "drag toolbar item should have a stable width")
+        self.require("slider.widthAnchor.constraint(equalToConstant: 104)" in editor, "zoom slider should live in the left info toolbar item")
+        self.require("zoomToolbarWidth" not in editor, "zoom slider should not reserve a separate right-side toolbar item")
         self.require("let stack = NSStackView(views: [label, slider])" not in editor, "toolbar buttons should not be split into a second row")
         default_items = re.search(r"func toolbarDefaultItemIdentifiers\(_ toolbar: NSToolbar\) -> \[NSToolbarItem.Identifier\] \{\n        \[\n(?P<body>.*?)\n        \]\n    \}", editor, re.DOTALL)
         self.require(default_items is not None, "toolbar default items missing")
@@ -427,28 +433,32 @@ class FunctionalTestRunner:
         self.require(item_body.count(".flexibleSpace") == 1, "toolbar should use one flexible space for right alignment")
         self.require(item_body.index(".imageSize") < item_body.index(".flexibleSpace") < item_body.index(".tools"), "toolbar controls should be right aligned after image size")
         self.require(item_body.index(".tools") < item_body.index(".eraserSize") < item_body.index(".fitZoom"), "eraser size control should stay in the single-row tool group")
+        self.require(".zoom" not in item_body, "zoom slider should not occupy right-side toolbar space")
         self.require("formatImageSize(_ size: CGSize)" in editor and "x \\(Int(size.height.rounded())) px" in editor, "editor must format screenshot dimensions")
         self.require("formatZoom(_ scale: CGFloat)" in editor, "editor must format zoom in the stacked info block")
 
     def case_editor_toolbar_stacked_info_layout(self) -> None:
         editor = self.read("Sources/SnapMark/EditorWindowController.swift")
 
-        self.require("NSStackView(views: [zoomInfoLabel, imageSizeLabel])" in editor, "zoom should be stacked above image size")
-        self.require("stack.orientation = .vertical" in editor, "toolbar info block should be vertical")
-        self.require("stack.alignment = .leading" in editor, "toolbar info block should be leading aligned")
+        self.require("let infoStack = NSStackView(views: [zoomInfoLabel, imageSizeLabel])" in editor, "zoom should be stacked above image size")
+        self.require("infoStack.orientation = .vertical" in editor, "toolbar info block should be vertical")
+        self.require("infoStack.alignment = .leading" in editor, "toolbar info block should be leading aligned")
+        self.require("let stack = NSStackView(views: [infoStack, slider])" in editor, "zoom slider should be attached to the left info block")
+        self.require("stack.orientation = .horizontal" in editor, "left info and zoom slider should share one compact row")
         self.require("zoomInfoLabel.stringValue = Self.formatZoom(canvasView.zoomScale)" in editor, "zoom label should update from actual zoom")
         self.require("imageSizeLabel.stringValue = Self.formatImageSize(imagePixelSize)" in editor, "image size label should use screenshot pixels")
         self.require("zoomInfoLabel?.stringValue" not in editor, "zoom info label should be a stable toolbar field")
-        self.require("let stack = NSStackView(views: [label, slider])" not in editor, "right side controls should not be stacked into two rows")
+        self.require("let stack = NSStackView(views: [label, slider])" not in editor, "right side controls should not own zoom layout")
 
         default_items = re.search(r"func toolbarDefaultItemIdentifiers\(_ toolbar: NSToolbar\) -> \[NSToolbarItem.Identifier\] \{\n        \[\n(?P<body>.*?)\n        \]\n    \}", editor, re.DOTALL)
         self.require(default_items is not None, "toolbar default items missing")
         assert default_items is not None
         item_body = default_items.group("body")
-        for item in [".tools", ".eraserSize", ".fitZoom", ".zoom", ".undo", ".copy", ".save", ".dragCopy"]:
+        for item in [".tools", ".eraserSize", ".fitZoom", ".undo", ".copy", ".save", ".dragCopy"]:
             self.require(item in item_body, f"toolbar single-row item missing {item}")
+        self.require(".zoom" not in item_body, "zoom slider should not be a right-side toolbar item")
         self.require(item_body.index(".flexibleSpace") < item_body.index(".tools"), "tool controls should stay to the right of flexible space")
-        self.require(item_body.index(".tools") < item_body.index(".eraserSize") < item_body.index(".zoom"), "eraser size and zoom should remain in the right-side single row")
+        self.require(item_body.index(".tools") < item_body.index(".eraserSize") < item_body.index(".fitZoom"), "eraser size and actions should remain in the right-side single row")
 
         fit_zoom = 0.625
         formatted_zoom = f"{self.round_away(fit_zoom * 100)}%"

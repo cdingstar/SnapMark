@@ -51,7 +51,7 @@ enum ImageRenderer {
             case .magnifier:
                 drawMagnifier(annotation, over: baseImage, canvasRect: canvasRect, isPreview: isPreview)
             case .eraser:
-                drawEraser(annotation, over: baseImage, canvasRect: canvasRect, isPreview: isPreview)
+                drawEraser(annotation, canvasRect: canvasRect, isPreview: isPreview)
             }
         }
     }
@@ -180,7 +180,7 @@ enum ImageRenderer {
         inner.stroke()
     }
 
-    private static func drawEraser(_ annotation: Annotation, over baseImage: NSImage, canvasRect: CGRect, isPreview: Bool) {
+    private static func drawEraser(_ annotation: Annotation, canvasRect: CGRect, isPreview: Bool) {
         let points = annotation.points.isEmpty ? [annotation.start, annotation.end] : annotation.points
         guard let firstPoint = points.first, let context = NSGraphicsContext.current?.cgContext else { return }
 
@@ -209,7 +209,8 @@ enum ImageRenderer {
         }
 
         context.clip()
-        baseImage.draw(in: canvasRect, from: .zero, operation: .copy, fraction: isPreview ? 0.78 : 1)
+        eraserBackgroundColor(isPreview: isPreview).setFill()
+        canvasRect.fill()
         context.restoreGState()
 
         if isPreview {
@@ -248,5 +249,9 @@ enum ImageRenderer {
         NSColor.black.withAlphaComponent(0.35).setStroke()
         path.lineWidth = max(1, lineWidth - 2)
         path.stroke()
+    }
+
+    private static func eraserBackgroundColor(isPreview: Bool) -> NSColor {
+        NSColor.white.withAlphaComponent(isPreview ? 0.78 : 1)
     }
 }
