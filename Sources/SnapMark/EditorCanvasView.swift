@@ -8,7 +8,7 @@ final class EditorCanvasView: NSView {
     var onAnnotationsChanged: (() -> Void)?
     var onResetRequested: (() -> Void)?
     private(set) var zoomScale: CGFloat = 1
-    var eraserSize: EraserSize = .medium
+    var penSize: PenSize = .medium
     var annotationColor: NSColor = .systemRed
 
     var currentTool: AnnotationTool = .arrow {
@@ -100,7 +100,7 @@ final class EditorCanvasView: NSView {
         if event.clickCount >= 2, editTextAnnotation(at: point) {
             return
         }
-        if currentTool != .eraser, beginAnnotationInteraction(at: point) {
+        if currentTool != .pen, beginAnnotationInteraction(at: point) {
             return
         }
 
@@ -127,7 +127,7 @@ final class EditorCanvasView: NSView {
 
         guard dragStart != nil, let point = imagePoint(from: convert(event.locationInWindow, from: nil)) else { return }
         dragCurrent = point
-        if currentTool == .eraser {
+        if currentTool == .pen {
             dragPoints.append(point)
         }
         needsDisplay = true
@@ -154,9 +154,9 @@ final class EditorCanvasView: NSView {
 
         var annotation = Annotation(tool: currentTool, start: start, end: end)
         annotation.color = annotationColor
-        if currentTool == .eraser {
+        if currentTool == .pen {
             annotation.points = points
-            annotation.lineWidth = eraserSize.lineWidth
+            annotation.lineWidth = penSize.lineWidth
         } else {
             normalizeMinimumSize(&annotation)
         }
@@ -234,10 +234,22 @@ final class EditorCanvasView: NSView {
     }
 
     func fitZoomScale(for viewportSize: CGSize) -> CGFloat {
+        bestFitZoomScale(for: viewportSize)
+    }
+
+    func bestFitZoomScale(for viewportSize: CGSize) -> CGFloat {
         guard imageSize.width > 0, imageSize.height > 0 else { return 1 }
         let availableWidth = max(1, viewportSize.width - contentPadding * 2)
         let availableHeight = max(1, viewportSize.height - contentPadding * 2)
         let scale = min(1, availableWidth / imageSize.width, availableHeight / imageSize.height)
+        return min(Self.maximumZoomScale, max(Self.minimumZoomScale, scale))
+    }
+
+    func fitInZoomScale(for viewportSize: CGSize) -> CGFloat {
+        guard imageSize.width > 0, imageSize.height > 0 else { return 1 }
+        let availableWidth = max(1, viewportSize.width - contentPadding * 2)
+        let availableHeight = max(1, viewportSize.height - contentPadding * 2)
+        let scale = min(availableWidth / imageSize.width, availableHeight / imageSize.height)
         return min(Self.maximumZoomScale, max(Self.minimumZoomScale, scale))
     }
 
@@ -254,9 +266,9 @@ final class EditorCanvasView: NSView {
         guard let start = dragStart, let current = dragCurrent else { return nil }
         var annotation = Annotation(tool: currentTool, start: start, end: current)
         annotation.color = annotationColor
-        if currentTool == .eraser {
+        if currentTool == .pen {
             annotation.points = finalizedDragPoints(endingAt: current)
-            annotation.lineWidth = eraserSize.lineWidth
+            annotation.lineWidth = penSize.lineWidth
             return annotation
         }
 

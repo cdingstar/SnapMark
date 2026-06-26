@@ -1,11 +1,31 @@
 import AppKit
 
+private enum ZoomPresetMode: CaseIterable {
+    case current
+    case actualSize
+    case bestFit
+    case fitIn
+
+    var title: String {
+        switch self {
+        case .current:
+            return "当前"
+        case .actualSize:
+            return "100%"
+        case .bestFit:
+            return "Best Fit"
+        case .fitIn:
+            return "Fit In"
+        }
+    }
+}
+
 final class EditorWindowController: NSWindowController, NSWindowDelegate, NSToolbarDelegate, NSMenuDelegate {
-    private static let minimumToolbarWindowWidth: CGFloat = 1130
+    private static let minimumToolbarWindowWidth: CGFloat = 1100
     private static let minimumWindowHeight: CGFloat = 360
-    private static let imageSizeToolbarWidth: CGFloat = 220
+    private static let imageSizeToolbarWidth: CGFloat = 256
     private static let toolsToolbarWidth: CGFloat = 366
-    private static let colorToolbarWidth: CGFloat = 48
+    private static let colorToolbarWidth: CGFloat = 34
     private static let dragCopyToolbarWidth: CGFloat = 28
 
     var onClose: (() -> Void)?
@@ -16,12 +36,12 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     private var autosaveWorkItem: DispatchWorkItem?
     private var shouldSaveOnClose = true
     private let imagePixelSize: CGSize
-    private let imageSizeLabel = NSTextField(labelWithString: "")
-    private let zoomInfoLabel = NSTextField(labelWithString: "")
     private var toolControl: NSSegmentedControl?
     private var annotationColorWell: NSColorWell?
-    private var eraserSizeMenu: NSMenu?
-    private var zoomSlider: NSSlider?
+    private var penSizeMenu: NSMenu?
+    private var zoomInfoControl: ZoomInfoSliderView?
+    private var fitZoomButton: NSButton?
+    private var nextZoomPresetIndex = 1
 
     init(image: NSImage) {
         imagePixelSize = image.snapMarkPixelSize
@@ -148,7 +168,6 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             .flexibleSpace,
             .tools,
             .color,
-            .fitZoom,
             .undo,
             .copy,
             .save,
@@ -160,45 +179,42 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         switch itemIdentifier {
         case .imageSize:
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = "尺寸"
-            item.paletteLabel = "尺寸"
-            item.toolTip = "截图尺寸"
-            zoomInfoLabel.stringValue = Self.formatZoom(canvasView.zoomScale)
-            zoomInfoLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
-            zoomInfoLabel.textColor = .secondaryLabelColor
-            zoomInfoLabel.alignment = .left
-            zoomInfoLabel.setContentHuggingPriority(.required, for: .horizontal)
-            zoomInfoLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+            item.label = "缩放"
+            item.paletteLabel = "缩放"
+            item.toolTip = "缩放和截图尺寸"
 
-            imageSizeLabel.stringValue = Self.formatImageSize(imagePixelSize)
-            imageSizeLabel.font = .monospacedDigitSystemFont(ofSize: 10, weight: .regular)
-            imageSizeLabel.textColor = .tertiaryLabelColor
-            imageSizeLabel.alignment = .left
-
-            let slider = NSSlider(
-                value: Double(canvasView.zoomScale),
-                minValue: Double(EditorCanvasView.minimumZoomScale),
-                maxValue: Double(EditorCanvasView.maximumZoomScale),
-                target: self,
-                action: #selector(changeZoom)
+            let zoomControl = ZoomInfoSliderView(
+                value: canvasView.zoomScale,
+                minValue: EditorCanvasView.minimumZoomScale,
+                maxValue: EditorCanvasView.maximumZoomScale
             )
-            slider.controlSize = .small
-            slider.translatesAutoresizingMaskIntoConstraints = false
-            slider.widthAnchor.constraint(equalToConstant: 104).isActive = true
+            zoomControl.translatesAutoresizingMaskIntoConstraints = false
+            zoomControl.widthAnchor.constraint(equalToConstant: 210).isActive = true
+            zoomControl.heightAnchor.constraint(equalToConstant: 28).isActive = true
+            zoomControl.onZoomChanged = { [weak self] scale in
+                self?.setZoomScaleFromSlider(scale)
+            }
 
-            let infoStack = NSStackView(views: [zoomInfoLabel, imageSizeLabel])
-            infoStack.orientation = .vertical
-            infoStack.alignment = .leading
-            infoStack.spacing = 0
+            let fitButton = NSButton(title: "", target: self, action: #selector(cycleZoomPreset))
+            fitButton.image = NSImage(systemSymbolName: "arrow.up.left.and.arrow.down.right", accessibilityDescription: "适应")
+            fitButton.imagePosition = .imageOnly
+            fitButton.bezelStyle = .texturedRounded
+            fitButton.controlSize = .small
+            fitButton.translatesAutoresizingMaskIntoConstraints = false
+            fitButton.widthAnchor.constraint(equalToConstant: 28).isActive = true
+            fitButton.heightAnchor.constraint(equalToConstant: 24).isActive = true
 
-            let stack = NSStackView(views: [infoStack, slider])
+            let stack = NSStackView(views: [zoomControl, fitButton])
             stack.orientation = .horizontal
             stack.alignment = .centerY
-            stack.spacing = 8
+            stack.spacing = 6
             stack.translatesAutoresizingMaskIntoConstraints = false
             item.view = stack
             lockToolbarItem(item, width: Self.imageSizeToolbarWidth)
-            zoomSlider = slider
+            zoomInfoControl = zoomControl
+            fitZoomButton = fitButton
+            updateZoomUI()
+            updateFitZoomTooltip()
             return item
 
         case .tools:
@@ -219,13 +235,13 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             control.setWidth(48, forSegment: AnnotationTool.text.rawValue)
             control.setWidth(62, forSegment: AnnotationTool.mosaic.rawValue)
             control.setWidth(62, forSegment: AnnotationTool.magnifier.rawValue)
-            control.setWidth(88, forSegment: AnnotationTool.eraser.rawValue)
-            control.setMenu(makeEraserSizeMenu(), forSegment: AnnotationTool.eraser.rawValue)
-            control.setShowsMenuIndicator(true, forSegment: AnnotationTool.eraser.rawValue)
+            control.setWidth(88, forSegment: AnnotationTool.pen.rawValue)
+            control.setMenu(makePenSizeMenu(), forSegment: AnnotationTool.pen.rawValue)
+            control.setShowsMenuIndicator(true, forSegment: AnnotationTool.pen.rawValue)
             item.view = control
             lockToolbarItem(item, width: Self.toolsToolbarWidth)
             toolControl = control
-            updateEraserSegmentTitle()
+            updatePenSegmentTitle()
             updateToolOptions()
             return item
 
@@ -235,7 +251,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             item.paletteLabel = "颜色"
             item.toolTip = "新标注颜色"
 
-            let colorWell = NSColorWell(frame: CGRect(x: 0, y: 0, width: 34, height: 22))
+            let colorWell = NSColorWell(frame: CGRect(x: 0, y: 0, width: 26, height: 22))
             colorWell.color = canvasView.annotationColor
             colorWell.target = self
             colorWell.action = #selector(changeAnnotationColor)
@@ -244,14 +260,6 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             lockToolbarItem(item, width: Self.colorToolbarWidth)
             annotationColorWell = colorWell
             return item
-
-        case .fitZoom:
-            return toolbarButton(
-                identifier: itemIdentifier,
-                label: "适应",
-                symbolName: "arrow.up.left.and.arrow.down.right",
-                action: #selector(fitZoom)
-            )
 
         case .undo:
             return toolbarButton(
@@ -301,8 +309,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
 
     @objc private func changeTool(_ sender: NSSegmentedControl) {
         guard let tool = AnnotationTool(rawValue: sender.selectedSegment) else { return }
-        if tool == .eraser, canvasView.currentTool == .eraser {
-            cycleEraserSize()
+        if tool == .pen, canvasView.currentTool == .pen {
+            cyclePenSize()
         }
         canvasView.currentTool = tool
         updateToolOptions()
@@ -312,25 +320,42 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         canvasView.annotationColor = sender.color
     }
 
-    @objc private func chooseEraserSize(_ sender: NSMenuItem) {
-        guard let size = EraserSize(rawValue: sender.tag) else { return }
-        canvasView.eraserSize = size
-        canvasView.currentTool = .eraser
-        toolControl?.selectedSegment = AnnotationTool.eraser.rawValue
-        updateEraserSegmentTitle()
+    @objc private func choosePenSize(_ sender: NSMenuItem) {
+        guard let size = PenSize(rawValue: sender.tag) else { return }
+        canvasView.penSize = size
+        canvasView.currentTool = .pen
+        toolControl?.selectedSegment = AnnotationTool.pen.rawValue
+        updatePenSegmentTitle()
         updateToolOptions()
     }
 
-    @objc private func fitZoom() {
+    private func setZoomScaleFromSlider(_ scale: CGFloat) {
         updateCanvasViewport()
-        canvasView.setZoomScale(canvasView.fitZoomScale(for: scrollView.contentView.bounds.size))
+        canvasView.setZoomScale(scale)
         updateZoomUI()
         canvasView.scrollToVisible(canvasView.canvasCenterRect)
     }
 
-    @objc private func changeZoom(_ sender: NSSlider) {
+    @objc private func cycleZoomPreset() {
+        let modes = ZoomPresetMode.allCases
+        let mode = modes[nextZoomPresetIndex % modes.count]
+        applyZoomPreset(mode)
+        nextZoomPresetIndex = (nextZoomPresetIndex + 1) % modes.count
+        updateFitZoomTooltip()
+    }
+
+    private func applyZoomPreset(_ mode: ZoomPresetMode) {
         updateCanvasViewport()
-        canvasView.setZoomScale(CGFloat(sender.doubleValue))
+        switch mode {
+        case .current:
+            break
+        case .actualSize:
+            canvasView.setZoomScale(1)
+        case .bestFit:
+            canvasView.setZoomScale(canvasView.bestFitZoomScale(for: scrollView.contentView.bounds.size))
+        case .fitIn:
+            canvasView.setZoomScale(canvasView.fitInZoomScale(for: scrollView.contentView.bounds.size))
+        }
         updateZoomUI()
         canvasView.scrollToVisible(canvasView.canvasCenterRect)
     }
@@ -395,50 +420,61 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     }
 
     private func updateZoomUI() {
-        zoomSlider?.doubleValue = Double(canvasView.zoomScale)
-        zoomInfoLabel.stringValue = Self.formatZoom(canvasView.zoomScale)
+        zoomInfoControl?.update(
+            zoomText: Self.formatZoom(canvasView.zoomScale),
+            imageSizeText: Self.formatImageSize(imagePixelSize),
+            zoomScale: canvasView.zoomScale
+        )
     }
 
     private func updateToolOptions() {
-        annotationColorWell?.isEnabled = canvasView.currentTool != .eraser
-        updateEraserSegmentTitle()
-        updateEraserSizeMenuState()
+        annotationColorWell?.isEnabled = true
+        updatePenSegmentTitle()
+        updatePenSizeMenuState()
     }
 
-    private func makeEraserSizeMenu() -> NSMenu {
-        let menu = NSMenu(title: "擦除大小")
+    private func makePenSizeMenu() -> NSMenu {
+        let menu = NSMenu(title: "Pen 大小")
         menu.delegate = self
-        for size in EraserSize.allCases {
-            let item = NSMenuItem(title: "Eraser \(size.title)", action: #selector(chooseEraserSize), keyEquivalent: "")
+        for size in PenSize.allCases {
+            let item = NSMenuItem(title: "Pen \(size.title)", action: #selector(choosePenSize), keyEquivalent: "")
             item.target = self
             item.tag = size.rawValue
             menu.addItem(item)
         }
-        eraserSizeMenu = menu
-        updateEraserSizeMenuState()
+        penSizeMenu = menu
+        updatePenSizeMenuState()
         return menu
     }
 
     func menuWillOpen(_ menu: NSMenu) {
-        if menu == eraserSizeMenu {
-            updateEraserSizeMenuState()
+        if menu == penSizeMenu {
+            updatePenSizeMenuState()
         }
     }
 
-    private func updateEraserSegmentTitle() {
-        toolControl?.setLabel("Eraser \(canvasView.eraserSize.title)", forSegment: AnnotationTool.eraser.rawValue)
+    private func updatePenSegmentTitle() {
+        toolControl?.setLabel("Pen \(canvasView.penSize.title)", forSegment: AnnotationTool.pen.rawValue)
     }
 
-    private func updateEraserSizeMenuState() {
-        eraserSizeMenu?.items.forEach { item in
-            item.state = item.tag == canvasView.eraserSize.rawValue ? .on : .off
+    private func updatePenSizeMenuState() {
+        penSizeMenu?.items.forEach { item in
+            item.state = item.tag == canvasView.penSize.rawValue ? .on : .off
         }
     }
 
-    private func cycleEraserSize() {
-        let sizes = EraserSize.allCases
-        guard let index = sizes.firstIndex(of: canvasView.eraserSize) else { return }
-        canvasView.eraserSize = sizes[(index + 1) % sizes.count]
+    private func cyclePenSize() {
+        let sizes = PenSize.allCases
+        guard let index = sizes.firstIndex(of: canvasView.penSize) else { return }
+        canvasView.penSize = sizes[(index + 1) % sizes.count]
+        updatePenSegmentTitle()
+        updatePenSizeMenuState()
+    }
+
+    private func updateFitZoomTooltip() {
+        let modes = ZoomPresetMode.allCases
+        let mode = modes[nextZoomPresetIndex % modes.count]
+        fitZoomButton?.toolTip = "缩放模式：\(mode.title)"
     }
 
     private static func formatImageSize(_ size: CGSize) -> String {
@@ -471,7 +507,6 @@ private extension NSToolbarItem.Identifier {
     static let imageSize = NSToolbarItem.Identifier("SnapMark.ImageSize")
     static let tools = NSToolbarItem.Identifier("SnapMark.Tools")
     static let color = NSToolbarItem.Identifier("SnapMark.Color")
-    static let fitZoom = NSToolbarItem.Identifier("SnapMark.FitZoom")
     static let undo = NSToolbarItem.Identifier("SnapMark.Undo")
     static let copy = NSToolbarItem.Identifier("SnapMark.Copy")
     static let save = NSToolbarItem.Identifier("SnapMark.Save")

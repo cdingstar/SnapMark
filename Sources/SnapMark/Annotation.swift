@@ -6,7 +6,7 @@ enum AnnotationTool: Int, CaseIterable {
     case text
     case mosaic
     case magnifier
-    case eraser
+    case pen
 
     var title: String {
         switch self {
@@ -20,8 +20,8 @@ enum AnnotationTool: Int, CaseIterable {
             return "Mosaic"
         case .magnifier:
             return "Lens"
-        case .eraser:
-            return "Eraser"
+        case .pen:
+            return "Pen"
         }
     }
 
@@ -37,13 +37,13 @@ enum AnnotationTool: Int, CaseIterable {
             return "checkerboard.rectangle"
         case .magnifier:
             return "plus.magnifyingglass"
-        case .eraser:
-            return "eraser"
+        case .pen:
+            return "pen"
         }
     }
 }
 
-enum EraserSize: Int, CaseIterable {
+enum PenSize: Int, CaseIterable {
     case small
     case medium
     case large

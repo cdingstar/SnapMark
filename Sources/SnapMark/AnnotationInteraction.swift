@@ -16,7 +16,7 @@ enum AnnotationInteractionMode {
 
 extension AnnotationTool {
     var isTransformableElement: Bool {
-        self != .eraser
+        self != .pen
     }
 }
 
@@ -36,7 +36,7 @@ extension Annotation {
             return rect.insetBy(dx: -tolerance, dy: -tolerance).contains(point)
         case .rectangle, .text, .mosaic:
             return rect.insetBy(dx: -tolerance, dy: -tolerance).contains(point)
-        case .eraser:
+        case .pen:
             return false
         }
     }
