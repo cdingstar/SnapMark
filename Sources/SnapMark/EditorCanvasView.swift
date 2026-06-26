@@ -9,6 +9,7 @@ final class EditorCanvasView: NSView {
     var onResetRequested: (() -> Void)?
     private(set) var zoomScale: CGFloat = 1
     var eraserSize: EraserSize = .medium
+    var annotationColor: NSColor = .systemRed
 
     var currentTool: AnnotationTool = .arrow {
         didSet {
@@ -27,10 +28,9 @@ final class EditorCanvasView: NSView {
     private var dragCurrent: CGPoint?
     private var dragPoints: [CGPoint] = []
     private var selectedAnnotationID: UUID?
-    private var movingAnnotationID: UUID?
-    private var moveStartPoint: CGPoint?
-    private var moveOriginalStart: CGPoint?
-    private var moveOriginalEnd: CGPoint?
+    private var annotationInteractionMode: AnnotationInteractionMode?
+    private var interactionStartPoint: CGPoint?
+    private var interactionOriginalAnnotation: Annotation?
     private var viewportSize = CGSize(width: 560, height: 360)
     private var panStartInWindow: CGPoint?
     private var panStartBoundsOrigin: CGPoint?
@@ -84,7 +84,7 @@ final class EditorCanvasView: NSView {
             ImageRenderer.draw(annotations: [preview], over: baseImage, canvasRect: imageRect, isPreview: true)
         }
 
-        drawSelectedTextBorder()
+        drawSelectedAnnotationOverlay()
 
         NSGraphicsContext.restoreGraphicsState()
     }
@@ -97,7 +97,10 @@ final class EditorCanvasView: NSView {
 
         window?.makeFirstResponder(self)
         guard let point = imagePoint(from: convert(event.locationInWindow, from: nil)) else { return }
-        if currentTool == .text, beginTextMove(at: point) {
+        if event.clickCount >= 2, editTextAnnotation(at: point) {
+            return
+        }
+        if currentTool != .eraser, beginAnnotationInteraction(at: point) {
             return
         }
 
@@ -116,9 +119,9 @@ final class EditorCanvasView: NSView {
             return
         }
 
-        if movingAnnotationID != nil {
+        if annotationInteractionMode != nil {
             guard let point = imagePoint(from: convert(event.locationInWindow, from: nil)) else { return }
-            updateTextMove(to: point)
+            updateAnnotationInteraction(to: point)
             return
         }
 
@@ -136,8 +139,8 @@ final class EditorCanvasView: NSView {
             return
         }
 
-        if movingAnnotationID != nil {
-            endTextMove()
+        if annotationInteractionMode != nil {
+            endAnnotationInteraction()
             return
         }
 
@@ -150,6 +153,7 @@ final class EditorCanvasView: NSView {
         dragPoints.removeAll()
 
         var annotation = Annotation(tool: currentTool, start: start, end: end)
+        annotation.color = annotationColor
         if currentTool == .eraser {
             annotation.points = points
             annotation.lineWidth = eraserSize.lineWidth
@@ -208,6 +212,9 @@ final class EditorCanvasView: NSView {
 
     func undoLastAnnotation() {
         guard !annotations.isEmpty else { return }
+        if selectedAnnotationID == annotations.last?.id {
+            selectedAnnotationID = nil
+        }
         annotations.removeLast()
     }
 
@@ -246,6 +253,7 @@ final class EditorCanvasView: NSView {
     private var previewAnnotation: Annotation? {
         guard let start = dragStart, let current = dragCurrent else { return nil }
         var annotation = Annotation(tool: currentTool, start: start, end: current)
+        annotation.color = annotationColor
         if currentTool == .eraser {
             annotation.points = finalizedDragPoints(endingAt: current)
             annotation.lineWidth = eraserSize.lineWidth
@@ -378,8 +386,16 @@ final class EditorCanvasView: NSView {
         )
     }
 
-    private func promptForTextOptions() -> TextAnnotationOptions? {
-        TextAnnotationDialogController().runModal()
+    private func promptForTextOptions(
+        defaultText: String = "",
+        defaultColor: NSColor? = nil,
+        defaultFontSize: CGFloat = TextAnnotationMetrics.defaultFontSize
+    ) -> TextAnnotationOptions? {
+        TextAnnotationDialogController(
+            defaultText: defaultText,
+            defaultColor: defaultColor ?? annotationColor,
+            defaultFontSize: defaultFontSize
+        ).runModal()
     }
 
     private func applyTextOptions(_ options: TextAnnotationOptions, to annotation: inout Annotation) {
@@ -407,80 +423,150 @@ final class EditorCanvasView: NSView {
         annotation.end = CGPoint(x: origin.x + width, y: origin.y + height)
     }
 
-    private func beginTextMove(at point: CGPoint) -> Bool {
+    private func editTextAnnotation(at point: CGPoint) -> Bool {
         guard let index = textAnnotationIndex(at: point) else { return false }
+
+        selectedAnnotationID = annotations[index].id
+        guard let options = promptForTextOptions(
+            defaultText: annotations[index].text,
+            defaultColor: annotations[index].color,
+            defaultFontSize: annotations[index].fontSize
+        ) else {
+            needsDisplay = true
+            return true
+        }
+
+        var updated = annotations[index]
+        applyTextOptions(options, to: &updated)
+        annotations[index] = updated
+        return true
+    }
+
+    private func beginAnnotationInteraction(at point: CGPoint) -> Bool {
+        let tolerance = annotationHitTolerance
+        if
+            let selectedIndex = selectedAnnotationIndex(),
+            let handle = annotations[selectedIndex].resizeHandle(at: point, tolerance: tolerance)
+        {
+            annotationInteractionMode = .resize(handle)
+            interactionStartPoint = point
+            interactionOriginalAnnotation = annotations[selectedIndex]
+            return true
+        }
+
+        guard let index = annotationIndex(at: point) else { return false }
         let annotation = annotations[index]
         selectedAnnotationID = annotation.id
-        movingAnnotationID = annotation.id
-        moveStartPoint = point
-        moveOriginalStart = annotation.start
-        moveOriginalEnd = annotation.end
+        interactionStartPoint = point
+        interactionOriginalAnnotation = annotation
+        if let handle = annotation.resizeHandle(at: point, tolerance: tolerance) {
+            annotationInteractionMode = .resize(handle)
+        } else {
+            annotationInteractionMode = .move
+        }
         needsDisplay = true
         return true
     }
 
-    private func updateTextMove(to point: CGPoint) {
+    private func updateAnnotationInteraction(to point: CGPoint) {
         guard
-            let movingAnnotationID,
-            let index = annotations.firstIndex(where: { $0.id == movingAnnotationID }),
-            let moveStartPoint,
-            let moveOriginalStart,
-            let moveOriginalEnd
+            let selectedIndex = selectedAnnotationIndex(),
+            let interactionStartPoint,
+            let interactionOriginalAnnotation,
+            let annotationInteractionMode
         else { return }
 
-        let originalRect = CGRect(
-            x: min(moveOriginalStart.x, moveOriginalEnd.x),
-            y: min(moveOriginalStart.y, moveOriginalEnd.y),
-            width: abs(moveOriginalStart.x - moveOriginalEnd.x),
-            height: abs(moveOriginalStart.y - moveOriginalEnd.y)
-        )
-        var delta = CGPoint(x: point.x - moveStartPoint.x, y: point.y - moveStartPoint.y)
-        if originalRect.minX + delta.x < 0 {
-            delta.x = -originalRect.minX
+        switch annotationInteractionMode {
+        case .move:
+            let delta = CGPoint(x: point.x - interactionStartPoint.x, y: point.y - interactionStartPoint.y)
+            annotations[selectedIndex] = interactionOriginalAnnotation.moved(by: delta, within: imageSize)
+        case .resize(let handle):
+            annotations[selectedIndex] = interactionOriginalAnnotation.resized(
+                handle: handle,
+                to: point,
+                within: imageSize,
+                minimumSize: minimumTransformSize(for: interactionOriginalAnnotation)
+            )
         }
-        if originalRect.maxX + delta.x > imageSize.width {
-            delta.x = imageSize.width - originalRect.maxX
-        }
-        if originalRect.minY + delta.y < 0 {
-            delta.y = -originalRect.minY
-        }
-        if originalRect.maxY + delta.y > imageSize.height {
-            delta.y = imageSize.height - originalRect.maxY
-        }
-
-        var annotation = annotations[index]
-        annotation.start = CGPoint(x: moveOriginalStart.x + delta.x, y: moveOriginalStart.y + delta.y)
-        annotation.end = CGPoint(x: moveOriginalEnd.x + delta.x, y: moveOriginalEnd.y + delta.y)
-        annotations[index] = annotation
     }
 
-    private func endTextMove() {
-        movingAnnotationID = nil
-        moveStartPoint = nil
-        moveOriginalStart = nil
-        moveOriginalEnd = nil
+    private func endAnnotationInteraction() {
+        annotationInteractionMode = nil
+        interactionStartPoint = nil
+        interactionOriginalAnnotation = nil
+    }
+
+    private func selectedAnnotationIndex() -> Int? {
+        guard let selectedAnnotationID else { return nil }
+        return annotations.firstIndex { $0.id == selectedAnnotationID }
+    }
+
+    private func annotationIndex(at point: CGPoint) -> Int? {
+        let tolerance = annotationHitTolerance
+        return annotations.indices.reversed().first { index in
+            annotations[index].contains(point: point, tolerance: tolerance)
+        }
     }
 
     private func textAnnotationIndex(at point: CGPoint) -> Int? {
-        annotations.indices.reversed().first { index in
+        let tolerance = annotationHitTolerance
+        return annotations.indices.reversed().first { index in
             let annotation = annotations[index]
-            return annotation.tool == .text && annotation.rect.insetBy(dx: -6, dy: -6).contains(point)
+            return annotation.tool == .text && annotation.contains(point: point, tolerance: tolerance)
         }
     }
 
-    private func drawSelectedTextBorder() {
+    private func drawSelectedAnnotationOverlay() {
         guard
             let selectedAnnotationID,
-            let annotation = annotations.first(where: { $0.id == selectedAnnotationID && $0.tool == .text })
+            let annotation = annotations.first(where: { $0.id == selectedAnnotationID && $0.isTransformableElement })
         else { return }
 
-        let path = NSBezierPath(rect: annotation.rect.insetBy(dx: -4, dy: -4))
-        path.lineWidth = max(1 / max(zoomScale, 1), 0.75)
-        let dash: [CGFloat] = [4 / max(zoomScale, 1), 3 / max(zoomScale, 1)]
+        let path: NSBezierPath
+        if annotation.tool == .arrow {
+            path = NSBezierPath()
+            path.move(to: annotation.start)
+            path.line(to: annotation.end)
+        } else {
+            path = NSBezierPath(rect: annotation.rect.insetBy(dx: -4 / zoomScaleSafe, dy: -4 / zoomScaleSafe))
+        }
+        path.lineWidth = max(1 / zoomScaleSafe, 0.75)
+        let dash: [CGFloat] = [4 / zoomScaleSafe, 3 / zoomScaleSafe]
         dash.withUnsafeBufferPointer { buffer in
             path.setLineDash(buffer.baseAddress, count: dash.count, phase: 0)
         }
         NSColor.controlAccentColor.withAlphaComponent(0.85).setStroke()
         path.stroke()
+
+        drawResizeHandles(for: annotation)
+    }
+
+    private func drawResizeHandles(for annotation: Annotation) {
+        let size = resizeHandleDisplaySize
+        for (_, point) in annotation.resizeHandlePoints() {
+            let rect = CGRect(x: point.x - size / 2, y: point.y - size / 2, width: size, height: size)
+            NSColor.white.setFill()
+            NSBezierPath(roundedRect: rect, xRadius: 1.5 / zoomScaleSafe, yRadius: 1.5 / zoomScaleSafe).fill()
+            NSColor.controlAccentColor.setStroke()
+            let outline = NSBezierPath(roundedRect: rect, xRadius: 1.5 / zoomScaleSafe, yRadius: 1.5 / zoomScaleSafe)
+            outline.lineWidth = max(1 / zoomScaleSafe, 0.75)
+            outline.stroke()
+        }
+    }
+
+    private var annotationHitTolerance: CGFloat {
+        max(6 / zoomScaleSafe, 4)
+    }
+
+    private var resizeHandleDisplaySize: CGFloat {
+        max(8 / zoomScaleSafe, 5)
+    }
+
+    private var zoomScaleSafe: CGFloat {
+        max(zoomScale, 0.01)
+    }
+
+    private func minimumTransformSize(for annotation: Annotation) -> CGFloat {
+        annotation.tool == .text ? 32 : 8
     }
 }

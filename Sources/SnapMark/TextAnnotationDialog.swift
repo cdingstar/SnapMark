@@ -43,7 +43,11 @@ final class TextAnnotationDialogController: NSWindowController, NSWindowDelegate
     private var modalResponse: NSApplication.ModalResponse = .cancel
     private(set) var options: TextAnnotationOptions?
 
-    init(defaultColor: NSColor = .systemRed, defaultFontSize: CGFloat = TextAnnotationMetrics.defaultFontSize) {
+    init(
+        defaultText: String = "",
+        defaultColor: NSColor = .systemRed,
+        defaultFontSize: CGFloat = TextAnnotationMetrics.defaultFontSize
+    ) {
         let window = NSWindow(
             contentRect: CGRect(x: 0, y: 0, width: 420, height: 286),
             styleMask: [.titled, .closable],
@@ -57,6 +61,7 @@ final class TextAnnotationDialogController: NSWindowController, NSWindowDelegate
         colorWell.color = defaultColor
         fontSizeSlider.doubleValue = Double(defaultFontSize)
         buildContent()
+        textView.string = defaultText
         updatePreview()
     }
 

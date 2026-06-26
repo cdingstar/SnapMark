@@ -1,10 +1,11 @@
 import AppKit
 
 final class EditorWindowController: NSWindowController, NSWindowDelegate, NSToolbarDelegate {
-    private static let minimumToolbarWindowWidth: CGFloat = 1160
+    private static let minimumToolbarWindowWidth: CGFloat = 1210
     private static let minimumWindowHeight: CGFloat = 360
     private static let imageSizeToolbarWidth: CGFloat = 220
     private static let toolsToolbarWidth: CGFloat = 354
+    private static let colorToolbarWidth: CGFloat = 48
     private static let eraserSizeToolbarWidth: CGFloat = 84
     private static let dragCopyToolbarWidth: CGFloat = 28
 
@@ -19,6 +20,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     private let imageSizeLabel = NSTextField(labelWithString: "")
     private let zoomInfoLabel = NSTextField(labelWithString: "")
     private var toolControl: NSSegmentedControl?
+    private var annotationColorWell: NSColorWell?
     private var eraserSizeControl: NSSegmentedControl?
     private var zoomSlider: NSSlider?
 
@@ -110,7 +112,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
 
     private static func preferredWindowSize(for imageSize: CGSize) -> CGSize {
         let visibleFrame = NSScreen.main?.visibleFrame.size ?? CGSize(width: 1280, height: 800)
-        let maxWidth = min(1180, visibleFrame.width - 120)
+        let maxWidth = min(1240, visibleFrame.width - 80)
         let maxHeight = min(820, visibleFrame.height - 120)
         let minimumWidth = min(Self.minimumToolbarWindowWidth, maxWidth)
         return CGSize(
@@ -121,7 +123,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
 
     private static func minimumWindowSize() -> CGSize {
         let visibleWidth = NSScreen.main?.visibleFrame.width ?? 1280
-        let width = min(Self.minimumToolbarWindowWidth, max(560, visibleWidth - 120))
+        let width = min(Self.minimumToolbarWindowWidth, max(560, visibleWidth - 80))
         return CGSize(width: width, height: Self.minimumWindowHeight)
     }
 
@@ -146,6 +148,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             .imageSize,
             .flexibleSpace,
             .tools,
+            .color,
             .eraserSize,
             .fitZoom,
             .undo,
@@ -223,6 +226,22 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             lockToolbarItem(item, width: Self.toolsToolbarWidth)
             toolControl = control
             updateToolOptions()
+            return item
+
+        case .color:
+            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.label = "颜色"
+            item.paletteLabel = "颜色"
+            item.toolTip = "新标注颜色"
+
+            let colorWell = NSColorWell(frame: CGRect(x: 0, y: 0, width: 34, height: 22))
+            colorWell.color = canvasView.annotationColor
+            colorWell.target = self
+            colorWell.action = #selector(changeAnnotationColor)
+            colorWell.controlSize = .small
+            item.view = colorWell
+            lockToolbarItem(item, width: Self.colorToolbarWidth)
+            annotationColorWell = colorWell
             return item
 
         case .eraserSize:
@@ -307,6 +326,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         guard let tool = AnnotationTool(rawValue: sender.selectedSegment) else { return }
         canvasView.currentTool = tool
         updateToolOptions()
+    }
+
+    @objc private func changeAnnotationColor(_ sender: NSColorWell) {
+        canvasView.annotationColor = sender.color
     }
 
     @objc private func changeEraserSize(_ sender: NSSegmentedControl) {
@@ -394,6 +417,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
 
     private func updateToolOptions() {
         eraserSizeControl?.isEnabled = canvasView.currentTool == .eraser
+        annotationColorWell?.isEnabled = canvasView.currentTool != .eraser
     }
 
     private static func formatImageSize(_ size: CGSize) -> String {
@@ -425,6 +449,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
 private extension NSToolbarItem.Identifier {
     static let imageSize = NSToolbarItem.Identifier("SnapMark.ImageSize")
     static let tools = NSToolbarItem.Identifier("SnapMark.Tools")
+    static let color = NSToolbarItem.Identifier("SnapMark.Color")
     static let eraserSize = NSToolbarItem.Identifier("SnapMark.EraserSize")
     static let fitZoom = NSToolbarItem.Identifier("SnapMark.FitZoom")
     static let undo = NSToolbarItem.Identifier("SnapMark.Undo")

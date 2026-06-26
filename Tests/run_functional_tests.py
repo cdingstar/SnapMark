@@ -58,6 +58,7 @@ class FunctionalTestRunner:
             TestCase("SMK-P0-ANN-003", "编辑器橡皮擦支持 S/M/L 不同大小", self.case_eraser_tool_sizes),
             TestCase("SMK-P0-ANN-004", "橡皮擦自由路径预览和导出填充底色", self.case_eraser_path_rendering_logic),
             TestCase("SMK-P0-ANN-005", "文字标注弹窗支持颜色字号和预览", self.case_text_annotation_dialog),
+            TestCase("SMK-P0-ANN-006", "标注元素支持选中拖动缩放和创建颜色", self.case_annotation_transform_and_color),
             TestCase("SMK-P0-EDITOR-001", "编辑器使用棋盘底、居中显示、缩放和平移", self.case_editor_checkerboard_zoom_pan),
             TestCase("SMK-P0-EDITOR-002", "编辑器缩放不影响保存/复制输出像素", self.case_editor_export_independent_from_zoom),
             TestCase("SMK-P0-EDITOR-003", "编辑器标注坐标按缩放反算到图片像素", self.case_editor_annotation_coordinate_mapping),
@@ -404,10 +405,15 @@ class FunctionalTestRunner:
             "previewLabel",
             "fontSizeLabel.stringValue = \"\\(Int(fontSize)) px\"",
             "TextAnnotationOptions(",
+            "defaultText: String = \"\"",
+            "textView.string = defaultText",
         ]:
             self.require(token in dialog, f"text annotation dialog missing {token}")
-        self.require("promptForTextOptions() -> TextAnnotationOptions?" in canvas, "canvas should use text options dialog")
-        self.require("TextAnnotationDialogController().runModal()" in canvas, "text dialog should be a custom modal controller")
+        self.require("private func promptForTextOptions(" in canvas, "canvas should use text options dialog")
+        self.require("TextAnnotationDialogController(" in canvas, "text dialog should be a custom modal controller")
+        self.require("editTextAnnotation(at:" in canvas and "event.clickCount >= 2" in canvas, "double-click text edit path missing")
+        self.require("defaultText: annotations[index].text" in canvas, "text edit dialog should preload existing text")
+        self.require("defaultColor: annotations[index].color" in canvas, "text edit dialog should preload existing color")
         self.require("promptForText()" not in canvas, "old plain text alert should be removed")
         self.require("var fontSize: CGFloat = TextAnnotationMetrics.defaultFontSize" in annotation, "annotation must persist selected text size")
         self.require("annotation.fontSize" in renderer, "renderer should use selected text size")
@@ -418,6 +424,70 @@ class FunctionalTestRunner:
         estimated_width = max(96, min(font_size * 18, len(sample) * font_size * 0.62) + font_size * 0.9)
         estimated_height = font_size * 1.35
         self.require(estimated_width > 180 and estimated_height > 30, "text sizing fixture should scale with content and font size")
+
+    def case_annotation_transform_and_color(self) -> None:
+        interaction = self.read("Sources/SnapMark/AnnotationInteraction.swift")
+        canvas = self.read("Sources/SnapMark/EditorCanvasView.swift")
+        editor = self.read("Sources/SnapMark/EditorWindowController.swift")
+
+        for token in [
+            "enum AnnotationResizeHandle",
+            "enum AnnotationInteractionMode",
+            "var isTransformableElement: Bool",
+            "self != .eraser",
+            "func contains(point: CGPoint, tolerance: CGFloat) -> Bool",
+            "func resizeHandlePoints() -> [(AnnotationResizeHandle, CGPoint)]",
+            "func resizeHandle(at point: CGPoint, tolerance: CGFloat) -> AnnotationResizeHandle?",
+            "func moved(by delta: CGPoint, within imageSize: CGSize) -> Annotation",
+            "func resized(handle: AnnotationResizeHandle, to point: CGPoint, within imageSize: CGSize, minimumSize: CGFloat) -> Annotation",
+            "distance(from: point, toSegmentStart: start, end: end)",
+        ]:
+            self.require(token in interaction, f"annotation interaction missing {token}")
+
+        for token in [
+            "var annotationColor: NSColor = .systemRed",
+            "annotation.color = annotationColor",
+            "beginAnnotationInteraction(at:",
+            "updateAnnotationInteraction(to:",
+            "endAnnotationInteraction()",
+            "annotationInteractionMode",
+            "selectedAnnotationID",
+            "drawSelectedAnnotationOverlay()",
+            "drawResizeHandles(for:",
+            "resizeHandleDisplaySize",
+            "minimumTransformSize(for:",
+        ]:
+            self.require(token in canvas, f"canvas transform/color missing {token}")
+        self.require("currentTool != .eraser, beginAnnotationInteraction(at: point)" in canvas, "eraser should keep drawing behavior instead of selecting")
+        self.require("case .move:" in canvas and ".moved(by: delta, within: imageSize)" in canvas, "move interaction should update selected annotation")
+        self.require("case .resize(let handle):" in canvas and ".resized(" in canvas, "resize interaction should update selected annotation")
+
+        for token in [
+            "private static let colorToolbarWidth: CGFloat",
+            "private var annotationColorWell: NSColorWell?",
+            ".color",
+            "NSColorWell(frame:",
+            "colorWell.color = canvasView.annotationColor",
+            "colorWell.action = #selector(changeAnnotationColor)",
+            "@objc private func changeAnnotationColor(_ sender: NSColorWell)",
+            "canvasView.annotationColor = sender.color",
+            "annotationColorWell?.isEnabled = canvasView.currentTool != .eraser",
+            "SnapMark.Color",
+        ]:
+            self.require(token in editor, f"editor color toolbar missing {token}")
+        change_color_body = re.search(r"@objc private func changeAnnotationColor\(_ sender: NSColorWell\) \{\n(?P<body>.*?)\n    \}", editor, re.DOTALL)
+        self.require(change_color_body is not None, "changeAnnotationColor body missing")
+        assert change_color_body is not None
+        self.require("annotations" not in change_color_body.group("body"), "color picker must not recolor existing non-text annotations")
+
+        rect = {"min_x": 10, "max_x": 50, "min_y": 10, "max_y": 30}
+        delta = [80, 80]
+        image = {"width": 100, "height": 70}
+        if rect["max_x"] + delta[0] > image["width"]:
+            delta[0] = image["width"] - rect["max_x"]
+        if rect["max_y"] + delta[1] > image["height"]:
+            delta[1] = image["height"] - rect["max_y"]
+        self.require(tuple(delta) == (50, 40), "transform fixture should clamp move inside image bounds")
 
     def case_editor_checkerboard_zoom_pan(self) -> None:
         canvas = self.read("Sources/SnapMark/EditorCanvasView.swift")
@@ -447,7 +517,7 @@ class FunctionalTestRunner:
             "stack.orientation = .horizontal",
             "window.title = \"SnapMark\"",
             "window.minSize = Self.minimumWindowSize()",
-            "minimumToolbarWindowWidth: CGFloat = 1160",
+            "minimumToolbarWindowWidth: CGFloat = 1210",
             "lockToolbarItem(item, width: Self.toolsToolbarWidth)",
             "toolbar.displayMode = .iconOnly",
             "toolbar.sizeMode = .small",
@@ -467,7 +537,7 @@ class FunctionalTestRunner:
         item_body = default_items.group("body")
         self.require(item_body.count(".flexibleSpace") == 1, "toolbar should use one flexible space for right alignment")
         self.require(item_body.index(".imageSize") < item_body.index(".flexibleSpace") < item_body.index(".tools"), "toolbar controls should be right aligned after image size")
-        self.require(item_body.index(".tools") < item_body.index(".eraserSize") < item_body.index(".fitZoom"), "eraser size control should stay in the single-row tool group")
+        self.require(item_body.index(".tools") < item_body.index(".color") < item_body.index(".eraserSize") < item_body.index(".fitZoom"), "color and eraser controls should stay in the single-row tool group")
         self.require(".zoom" not in item_body, "zoom slider should not occupy right-side toolbar space")
         self.require("formatImageSize(_ size: CGSize)" in editor and "x \\(Int(size.height.rounded())) px" in editor, "editor must format screenshot dimensions")
         self.require("formatZoom(_ scale: CGFloat)" in editor, "editor must format zoom in the stacked info block")
@@ -489,11 +559,11 @@ class FunctionalTestRunner:
         self.require(default_items is not None, "toolbar default items missing")
         assert default_items is not None
         item_body = default_items.group("body")
-        for item in [".tools", ".eraserSize", ".fitZoom", ".undo", ".copy", ".save", ".dragCopy"]:
+        for item in [".tools", ".color", ".eraserSize", ".fitZoom", ".undo", ".copy", ".save", ".dragCopy"]:
             self.require(item in item_body, f"toolbar single-row item missing {item}")
         self.require(".zoom" not in item_body, "zoom slider should not be a right-side toolbar item")
         self.require(item_body.index(".flexibleSpace") < item_body.index(".tools"), "tool controls should stay to the right of flexible space")
-        self.require(item_body.index(".tools") < item_body.index(".eraserSize") < item_body.index(".fitZoom"), "eraser size and actions should remain in the right-side single row")
+        self.require(item_body.index(".tools") < item_body.index(".color") < item_body.index(".eraserSize") < item_body.index(".fitZoom"), "color, eraser size and actions should remain in the right-side single row")
 
         fit_zoom = 0.625
         formatted_zoom = f"{self.round_away(fit_zoom * 100)}%"
@@ -508,20 +578,19 @@ class FunctionalTestRunner:
             "TextAnnotationMetrics.fittedSize(",
             "annotation.fontSize = options.fontSize",
             "annotation.color = options.color",
-            "beginTextMove(at:",
-            "currentTool == .text, beginTextMove(at: point)",
-            "updateTextMove(to:",
-            "endTextMove()",
+            "editTextAnnotation(at:",
+            "beginAnnotationInteraction(at:",
+            "updateAnnotationInteraction(to:",
+            "endAnnotationInteraction()",
             "textAnnotationIndex(at:",
             "selectedAnnotationID",
-            "movingAnnotationID",
-            "drawSelectedTextBorder()",
-            "annotations[index] = annotation",
+            "annotationInteractionMode",
+            "drawSelectedAnnotationOverlay()",
+            "annotations[index] = updated",
         ]:
             self.require(token in canvas, f"text annotation sizing/drag missing {token}")
-        self.require("annotation.rect.insetBy(dx: -6, dy: -6).contains(point)" in canvas, "text hit target should be forgiving")
-        self.require("imageSize.width - originalRect.maxX" in canvas, "text dragging should clamp against right edge")
-        self.require("imageSize.height - originalRect.maxY" in canvas, "text dragging should clamp against top edge")
+        self.require("annotationHitTolerance" in canvas, "text hit target should be forgiving")
+        self.require(".moved(by: delta, within: imageSize)" in canvas, "text dragging should clamp through shared movement logic")
         self.require("path.setLineDash" in canvas and "NSColor.controlAccentColor" in canvas, "selected text should show an editor-only outline")
 
         start = (10, 10)
@@ -815,6 +884,7 @@ class FunctionalTestRunner:
             "SMK-P0-ANN-003",
             "SMK-P0-ANN-004",
             "SMK-P0-ANN-005",
+            "SMK-P0-ANN-006",
             "SMK-P0-EDITOR-001",
             "SMK-P0-EDITOR-002",
             "SMK-P0-EDITOR-003",
